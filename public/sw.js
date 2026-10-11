@@ -1,4 +1,4 @@
-const CACHE_NAME = 'luna-ai-v1.1.0';
+const CACHE_NAME = 'lunavex-explorer-v1.2.0';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -10,6 +10,11 @@ const urlsToCache = [
   '/radiation/index.html',
   '/thermo/',
   '/thermo/index.html',
+  '/explorer/',
+  '/explorer/index.html',
+  '/explorer/style.css',
+  '/explorer/overrides.css',
+  '/explorer/script.js',
   '/artemis/',
   '/artemis/index.html',
   '/analytics.html',

@@ -1,0 +1,4 @@
+.map-message button{border:1px solid #436579;background:#122b3b;color:#9be3ed;padding:7px 12px;font:10px var(--mono);cursor:pointer}.map-message button:hover{border-color:var(--cyan);color:white}
+@media(min-width:761px){.workspace{height:calc(100vh - 76px);min-height:560px}.side-panel{overflow-y:auto;max-height:100%}}
+@media(max-width:760px){.workspace{height:auto;min-height:0}.side-panel{overflow:visible;max-height:none}}
+.module-name small{font:8px var(--mono);color:#72899c;letter-spacing:.015em}

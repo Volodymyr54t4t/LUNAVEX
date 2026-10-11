@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07111d">
+  <meta name="description" content="LUNAVEX Lunar Site Explorer — інтерактивна карта південного полюса Місяця на даних NASA LRO.">
+  <title>Lunar Site Explorer — LUNAVEX</title>
+  <link rel="stylesheet" href="/explorer/style.css">
+  <link rel="stylesheet" href="/explorer/overrides.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="LUNAVEX — головна"><span class="brand-icon">L</span><span>LUNAVEX<small>LUNAR INTELLIGENCE & EXPLORATION</small></span></a>
+    <div class="module-name"><span class="eyebrow">ДОСЛІДНИЦЬКИЙ МОДУЛЬ 01</span><strong>Lunar Site Explorer</strong><small>Explore the Moon. Engineer the Future.</small></div>
+    <a class="back-link" href="/">← Платформа</a>
+  </header>
+  <main class="workspace">
+    <section class="map-column">
+      <div class="map-heading"><div><span class="eyebrow">LUNAR SOUTH POLAR REGION</span><h1>Оберіть ділянку</h1></div><div class="source-status" id="sourceStatus"><i></i><span>Завантаження карти NASA…</span></div></div>
+      <div class="map-shell">
+        <canvas id="lunarMap" aria-label="Карта південного полюса Місяця. Перетягуйте для переміщення, клацніть для вибору точки."></canvas>
+        <div class="map-overlay top-left"><span>NASA MOON TREK · LRO WAC</span><span>ПІВДЕННА ПОЛЯРНА СТЕРЕОГРАФІЧНА · IAU 30120</span></div>
+        <div class="map-overlay bottom-left" id="mapScale">100 км</div>
+        <div class="map-tools"><button id="zoomIn" aria-label="Збільшити">+</button><button id="zoomOut" aria-label="Зменшити">−</button><button id="resetView" aria-label="Скинути вигляд">⌖</button></div>
+        <div class="map-message" id="mapMessage"><span class="loader"></span><strong>Запит карти</strong><small>Отримуємо зображення з NASA Moon Trek</small><button id="retryMap" hidden>Повторити запит</button></div>
+      </div>
+      <div class="map-footer"><span>Джерело: LRO LROC WAC Image Mosaic, S Pole v2 · 100 м/піксель</span><a href="https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=moon" target="_blank" rel="noreferrer">Документація NASA ↗</a></div>
+    </section>
+    <aside class="side-panel">
+      <div class="panel-section selection-section">
+        <div class="section-title"><div><span class="eyebrow">ACTIVE SITE</span><h2>Поточна ділянка</h2></div><span class="site-index" id="siteCount">—</span></div>
+        <label class="field-label" for="siteName">Назва ділянки</label><input id="siteName" class="text-input" maxlength="60" placeholder="Наприклад, Shackleton Rim">
+        <div class="coordinates"><div class="coord-heading"><span>Координати</span><span class="coord-system">GEOGRAPHIC · PLANETOCENTRIC</span></div><div class="coord-value"><span><small>ШИРОТА</small><b id="latitudeValue">—</b></span><span><small>ДОВГОТА</small><b id="longitudeValue">—</b></span><button id="copyCoordinates" class="icon-button" aria-label="Копіювати координати" title="Копіювати координати">⧉</button></div><p>Географічні координати: широта/довгота, градуси; східна довгота додатна.</p></div>
+        <form id="coordinateForm" class="manual-coordinates"><label for="manualLat">Ввести координати вручну</label><div class="coordinate-inputs"><input id="manualLat" inputmode="decimal" type="number" min="-90" max="-60" step="0.000001" placeholder="Широта °" required><input id="manualLon" inputmode="decimal" type="number" min="-180" max="180" step="0.000001" placeholder="Довгота °" required><button type="submit" aria-label="Перейти до координат">↗</button></div><small>Для фокусу карти приймаються широти від 60° пд. ш. до полюса.</small></form>
+      </div>
+      <div class="panel-section time-section">
+        <div class="section-title"><div><span class="eyebrow">OBSERVATION CONTEXT</span><h2>Момент дослідження</h2></div></div>
+        <label class="field-label" for="observationTime">Дата та час</label><input id="observationTime" class="text-input" type="datetime-local"><div class="time-standard">Часовий стандарт: <b>UTC</b> <span>· значення поля інтерпретується як UTC</span></div>
+        <div class="data-note"><span class="note-mark">i</span><span>Час збережеться як параметр майбутнього аналізу освітленості та геометрії Земля—Сонце. Фізичні розрахунки ще не підключені.</span></div>
+      </div>
+      <div class="panel-section surface-section">
+        <div class="section-title"><div><span class="eyebrow">SURFACE DATA</span><h2>Поверхня</h2></div><span class="unavailable">НЕ ЗЧИТУЄТЬСЯ</span></div>
+        <div class="surface-value"><span>Висота</span><b>Недоступна</b></div><p class="surface-explain">Поточний мозаїчний шар — зображення WAC, не висотна модель. Значення висоти не виводиться.</p>
+        <a class="source-link" href="https://trek.nasa.gov/moon/trekarcgis/rest/services/LRO_WAC_Mosaic_SPole60_100m_v02/ImageServer" target="_blank" rel="noreferrer">Метадані шару NASA ImageServer ↗</a>
+      </div>
+      <div class="panel-section list-section">
+        <div class="section-title"><div><span class="eyebrow">RESEARCH SET · LOCAL</span><h2>Список ділянок</h2></div><span class="saved-count" id="savedCount">0 / 3+</span></div>
+        <div class="site-list" id="siteList"><div class="empty-list">Виберіть точку на карті або введіть координати, щоб додати першу ділянку.</div></div>
+        <div class="list-actions"><button id="saveSite" class="primary-button" disabled>＋ Зберегти ділянку</button><button id="deleteSite" class="delete-button" disabled>Видалити</button></div>
+      </div>
+      <div class="panel-foot"><div>Типи даних: <span>NASA-зображення</span> · <span>обчислені координати</span> · <span>введені параметри</span></div><div>Список ділянок зберігається локально у браузері</div></div>
+    </aside>
+  </main>
+  <script src="/explorer/script.js" defer></script>
+</body>
+</html>

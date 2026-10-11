@@ -1,0 +1,48 @@
+
+> luna-ai-unified@1.0.0 start
+> node server.js
+
+
+  🌕 ╔════════════════════════════════════════════════╗
+  🌕 ║     LUNA AI RESEARCH CENTER UNIFIED 🌕          ║
+  🌕 ║        Обєднана система досліджень Місяця       ║
+  🌕 ╠════════════════════════════════════════════════╣
+  🌕 ║  Сервер запущено на:  http://localhost:3001   
+  🌕 ║  
+  🌕 ║  Доступні модулі:
+  🌕 ║  ☀️  LunaEnergy - http://localhost:3001/energy
+  🌕 ║  ☢️  LunaRadiation - http://localhost:3001/radiation
+  🌕 ║  🌡️  LunaThermo - http://localhost:3001/thermo
+  🌕 ║  🚀  Artemis 2 Lab - http://localhost:3001/artemis
+  🌕 ║  
+  🌕 ║  API: http://localhost:3001/api
+  🌕 ╚════════════════════════════════════════════════╝
+  
+❌ Помилка ініціалізації БД: AggregateError [ECONNREFUSED]: 
+    at /Users/volodymyrchyzhevskyi/Documents/GitHub/LUNAVEX/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async initializeDatabase (/Users/volodymyrchyzhevskyi/Documents/GitHub/LUNAVEX/db.js:17:5) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:5432
+        at createConnectionError (node:net:1905:14)
+        at afterConnectMultiple (node:net:1935:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 5432
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:5432
+        at createConnectionError (node:net:1905:14)
+        at afterConnectMultiple (node:net:1935:16) {
+      errno: -61,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 5432
+    }
+  ]
+}
+🔧 PostgreSQL відмовив у з’єднанні. Перевірте, чи запущено Postgres і чи правильний DATABASE_URL.
+🔎 DATABASE: postgresql://localhost:5432/luna_research
