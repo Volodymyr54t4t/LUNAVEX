@@ -21,7 +21,7 @@
   const saveButton = document.getElementById('saveSite');
   const deleteButton = document.getElementById('deleteSite');
   const list = document.getElementById('siteList');
-  let sites = readSites();
+  let sites = [];
   let activeSavedId = null;
   let selected = null;
   let center = { x: 0, y: 0 };
@@ -35,27 +35,79 @@
   let showingTerrain = false;
   let selectedElevation = null;
   let elevationRequest = 0;
-  let compareIds = readCompareIds();
+  let compareIds = [];
+  let workspaceLoaded = false;
+  let persistenceQueue = Promise.resolve();
 
-  function readSites() {
-    try {
-      const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-      return Array.isArray(data) ? data.filter(item => item && Number.isFinite(item.lat) && Number.isFinite(item.lon)) : [];
-    } catch { return []; }
+  function setWorkspaceStatus(kind, text) {
+    const indicator = document.getElementById('workspaceStatus');
+    indicator.dataset.state = kind;
+    indicator.textContent = text;
   }
 
-  function readCompareIds() {
-    try { const value = JSON.parse(localStorage.getItem(`${STORAGE_KEY}.compare`) || '[]'); return Array.isArray(value) ? value : []; }
-    catch { return []; }
+  function newSiteId() {
+    return crypto.randomUUID ? crypto.randomUUID() : `site-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
-  function writeSites() {
+  function reportPersistenceError(error) {
+    console.error('Explorer database persistence failed:', error);
+    setWorkspaceStatus('error', 'Не збережено в БД — перевірте підключення й повторіть збереження.');
+  }
+
+  function persistWorkspace() {
+    const payload = JSON.stringify({ sites, compareIds });
+    const operation = persistenceQueue.catch(() => {}).then(async () => {
+      const response = await fetch('/api/explorer/workspace', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: payload
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      setWorkspaceStatus('saved', 'Збережено в базі даних');
+      return data;
+    });
+    persistenceQueue = operation;
+    return operation;
+  }
+
+  async function loadWorkspace() {
+    setWorkspaceStatus('loading', 'Завантаження з бази даних…');
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sites));
-      return true;
-    } catch {
-      setStatus('error', 'Не вдалося зберегти локальні дані');
-      return false;
+      const response = await fetch('/api/explorer/workspace');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      if (!data.exists) {
+        let legacySites = [];
+        let legacyCompare = [];
+        try { legacySites = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch {}
+        try { legacyCompare = JSON.parse(localStorage.getItem(`${STORAGE_KEY}.compare`) || '[]'); } catch {}
+        const idMap = new Map();
+        const usedIds = new Set();
+        sites = Array.isArray(legacySites) ? legacySites.filter(site => site && Number.isFinite(site.lat) && Number.isFinite(site.lon)).map((site, index) => {
+          const previousId = String(site.id || '');
+          const id = /^[a-zA-Z0-9_-]{1,100}$/.test(previousId) && !usedIds.has(previousId) ? previousId : newSiteId();
+          usedIds.add(id);
+          if (previousId) idMap.set(previousId, id);
+          return { ...site, id, name: String(site.name || `Ділянка ${String(index + 1).padStart(2, '0')}`).slice(0, 60) };
+        }) : [];
+        compareIds = Array.isArray(legacyCompare) ? legacyCompare.map(id => idMap.get(String(id))).filter(Boolean) : [];
+        if (sites.length || compareIds.length) await persistWorkspace();
+      } else {
+        sites = Array.isArray(data.sites) ? data.sites : [];
+        compareIds = Array.isArray(data.compareIds) ? data.compareIds : [];
+      }
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(`${STORAGE_KEY}.compare`);
+      workspaceLoaded = true;
+      saveButton.disabled = !selected;
+      setWorkspaceStatus('saved', 'Підключено до бази даних');
+      renderSites();
+      renderComparisonControls();
+    } catch (error) {
+      workspaceLoaded = false;
+      saveButton.disabled = true;
+      reportPersistenceError(error);
+      list.innerHTML = '<div class="empty-list">Не вдалося підключитися до бази даних. Ділянки не зберігатимуться — перевірте DATABASE_URL і перезапустіть сервер.</div>';
+      renderComparisonControls();
     }
   }
 
@@ -200,7 +252,7 @@
       siteName.value = '';
       timeInput.value = utcFieldValue();
     }
-    saveButton.disabled = false;
+    saveButton.disabled = !workspaceLoaded;
     saveButton.textContent = savedId ? 'Зберегти зміни' : '＋ Зберегти ділянку';
     deleteButton.disabled = !savedId;
     render();
@@ -238,7 +290,7 @@
         selectedElevation = elevation; renderElevation('available', elevation);
         if (activeSavedId) {
           sites = sites.map(site => site.id === activeSavedId ? { ...site, surfaceData: { ...site.surfaceData, elevation, unit: 'm relative to lunar mean radius 1737400 m', source: DEM_SOURCE, resolution: '30 m/pixel', availability: 'available' } } : site);
-          writeSites(); renderSites();
+          persistWorkspace().catch(reportPersistenceError); renderSites();
         }
       }
     } catch (error) {
@@ -307,7 +359,7 @@
         if (event.target.checked) { if (!compareIds.includes(card.dataset.id)) compareIds.push(card.dataset.id); }
         else compareIds = compareIds.filter(id => id !== card.dataset.id);
         compareIds = compareIds.filter(id => sites.some(site => site.id === id));
-        localStorage.setItem(`${STORAGE_KEY}.compare`, JSON.stringify(compareIds));
+        persistWorkspace().catch(reportPersistenceError);
         renderComparisonControls();
       });
     });
@@ -318,7 +370,6 @@
     compareIds = compareIds.filter(id => sites.some(site => site.id === id));
     document.getElementById('compareSelectionCount').textContent = String(compareIds.length);
     document.getElementById('compareSites').disabled = compareIds.length < 2;
-    localStorage.setItem(`${STORAGE_KEY}.compare`, JSON.stringify(compareIds));
     const panel = document.getElementById('comparison');
     if (!panel.hidden) {
       if (compareIds.length >= 2) showComparison();
@@ -354,28 +405,32 @@
     catch { button.title = 'Буфер обміну недоступний'; }
   });
 
-  saveButton.addEventListener('click', () => {
-    if (!selected) return;
+  saveButton.addEventListener('click', async () => {
+    if (!selected || !workspaceLoaded) return;
     const name = siteName.value.trim() || `Ділянка ${String(sites.length + 1).padStart(2, '0')}`;
     const previous = activeSavedId ? sites.find(item => item.id === activeSavedId) : null;
-    const site = { id: activeSavedId || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`), name: name.slice(0, 60), lat: selected.lat, lon: selected.lon, time: timeInput.value, coordinateType: 'user-geographic-planetocentric-degrees', sources: [{ name: 'NASA LRO WAC Mosaic South Pole v02', resolution: '100 m/pixel', url: `https://trek.nasa.gov/moon/trekarcgis/rest/services/${LAYER}/ImageServer` }, { name: DEM_SOURCE, resolution: '30 m/pixel', url: DEM_ENDPOINT }], surfaceData: { elevation: selectedElevation ?? previous?.surfaceData?.elevation ?? null, unit: 'm relative to lunar mean radius 1737400 m', source: DEM_SOURCE, resolution: '30 m/pixel', availability: selectedElevation !== null ? 'available' : 'unavailable' }, analysis: { illumination: null, earthPosition: null, sunPosition: null } };
+    const site = { id: activeSavedId || newSiteId(), name: name.slice(0, 60), lat: selected.lat, lon: selected.lon, time: timeInput.value, coordinateType: 'user-geographic-planetocentric-degrees', sources: [{ name: 'NASA LRO WAC Mosaic South Pole v02', resolution: '100 m/pixel', url: `https://trek.nasa.gov/moon/trekarcgis/rest/services/${LAYER}/ImageServer` }, { name: DEM_SOURCE, resolution: '30 m/pixel', url: DEM_ENDPOINT }], surfaceData: { elevation: selectedElevation ?? previous?.surfaceData?.elevation ?? null, unit: 'm relative to lunar mean radius 1737400 m', source: DEM_SOURCE, resolution: '30 m/pixel', availability: selectedElevation !== null ? 'available' : 'unavailable' }, analysis: { illumination: null, earthPosition: null, sunPosition: null } };
     if (activeSavedId) sites = sites.map(item => item.id === activeSavedId ? site : item); else sites.push(site);
-    activeSavedId = site.id; writeSites(); saveButton.textContent = 'Зберегти зміни'; deleteButton.disabled = false; renderSites();
+    activeSavedId = site.id; saveButton.disabled = true; saveButton.textContent = 'Зберігаємо…'; deleteButton.disabled = false; renderSites();
+    try { await persistWorkspace(); saveButton.textContent = 'Зберегти зміни'; }
+    catch (error) { reportPersistenceError(error); saveButton.disabled = false; saveButton.textContent = 'Повторити збереження'; }
   });
 
-  function deleteActive() {
-    if (!activeSavedId) return;
+  async function deleteActive() {
+    if (!activeSavedId || !workspaceLoaded) return;
     sites = sites.filter(site => site.id !== activeSavedId);
     compareIds = compareIds.filter(id => id !== activeSavedId);
     selected = null; activeSavedId = null; latValue.textContent = '—'; lonValue.textContent = '—'; siteName.value = ''; saveButton.disabled = true; saveButton.textContent = '＋ Зберегти ділянку'; deleteButton.disabled = true;
     selectedElevation = null; elevationRequest++; renderElevation('none');
-    writeSites(); renderSites();
+    renderSites();
+    try { await persistWorkspace(); }
+    catch (error) { reportPersistenceError(error); }
   }
-  deleteButton.addEventListener('click', deleteActive);
+  deleteButton.addEventListener('click', () => { deleteActive(); });
   document.getElementById('imageryLayer').addEventListener('click', () => setMapLayer(false));
   document.getElementById('terrainLayer').addEventListener('click', () => setMapLayer(true));
   document.getElementById('compareSites').addEventListener('click', showComparison);
-  document.getElementById('clearCompare').addEventListener('click', () => { compareIds = []; list.querySelectorAll('[data-compare]').forEach(input => { input.checked = false; }); document.getElementById('comparison').hidden = true; renderComparisonControls(); });
+  document.getElementById('clearCompare').addEventListener('click', () => { compareIds = []; list.querySelectorAll('[data-compare]').forEach(input => { input.checked = false; }); document.getElementById('comparison').hidden = true; renderComparisonControls(); persistWorkspace().catch(reportPersistenceError); });
 
   function zoom(factor, x = shell.clientWidth / 2, y = shell.clientHeight / 2) {
     const before = { x: center.x + (x - shell.clientWidth / 2) * resolution, y: center.y - (y - shell.clientHeight / 2) * resolution };
@@ -419,10 +474,10 @@
   });
   shell.addEventListener('pointercancel', () => { dragState = null; shell.classList.remove('dragging'); });
   shell.addEventListener('pointermove', () => { if (dragState?.moved) shell.classList.add('dragging'); });
-  siteName.addEventListener('input', () => { saveButton.disabled = !selected; });
+  siteName.addEventListener('input', () => { saveButton.disabled = !selected || !workspaceLoaded; });
   window.addEventListener('resize', resize);
   timeInput.value = utcFieldValue();
-  renderSites();
-  renderComparisonControls();
+  saveButton.disabled = true;
   resize();
+  loadWorkspace();
 })();

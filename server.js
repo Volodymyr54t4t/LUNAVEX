@@ -12,6 +12,114 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Anonymous browser workspaces keep Explorer data private to a persistent cookie.
+app.use('/api/explorer', (req, res, next) => {
+  pool.ready.then(() => next()).catch(error => {
+    console.error('Explorer database unavailable:', error);
+    res.status(503).json({ error: 'База даних Explorer наразі недоступна.' });
+  });
+});
+
+function getExplorerWorkspaceId(req, res) {
+  const cookie = (req.headers.cookie || '').split(';').map(part => part.trim()).find(part => part.startsWith('lunavex_explorer_workspace='));
+  const candidate = cookie ? decodeURIComponent(cookie.slice('lunavex_explorer_workspace='.length)) : '';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)) return candidate;
+
+  const workspaceId = require('node:crypto').randomUUID();
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.append('Set-Cookie', `lunavex_explorer_workspace=${workspaceId}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax${secure}`);
+  return workspaceId;
+}
+
+function normalizeExplorerPayload(body) {
+  if (!body || typeof body !== 'object' || !Array.isArray(body.sites) || !Array.isArray(body.compareIds)) {
+    throw new Error('Очікуються масиви sites і compareIds.');
+  }
+  if (body.sites.length > 500) throw new Error('У робочому наборі може бути не більше 500 ділянок.');
+
+  const ids = new Set();
+  const sites = body.sites.map(site => {
+    if (!site || typeof site !== 'object') throw new Error('Некоректний запис ділянки.');
+    const id = String(site.id || '');
+    const name = String(site.name || '').trim();
+    const lat = Number(site.lat);
+    const lon = Number(site.lon);
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id) || ids.has(id)) throw new Error('Некоректний або повторний ідентифікатор ділянки.');
+    if (!name || name.length > 60) throw new Error('Назва ділянки має містити від 1 до 60 символів.');
+    if (!Number.isFinite(lat) || lat < -90 || lat > -60 || !Number.isFinite(lon) || lon < -180 || lon > 180) throw new Error('Координати ділянки поза допустимим діапазоном.');
+    ids.add(id);
+
+    const time = typeof site.time === 'string' ? site.time : '';
+    if (time && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(time)) throw new Error('Дата й час мають бути у форматі UTC YYYY-MM-DDTHH:mm.');
+    const sources = (Array.isArray(site.sources) ? site.sources : []).slice(0, 10).map(source => {
+      const url = new URL(String(source?.url || ''));
+      if (url.protocol !== 'https:' || url.hostname !== 'trek.nasa.gov') throw new Error('Дозволені лише посилання на джерела NASA Moon Trek.');
+      return { name: String(source?.name || '').slice(0, 160), resolution: String(source?.resolution || '').slice(0, 80), url: url.toString() };
+    });
+    if (!sources.length) {
+      sources.push(
+        { name: 'NASA LRO WAC Mosaic South Pole v02', resolution: '100 m/pixel', url: 'https://trek.nasa.gov/moon/trekarcgis/rest/services/LRO_WAC_Mosaic_SPole60_100m_v02/ImageServer' },
+        { name: 'NASA LRO LOLA DEM South Pole 75°S v04', resolution: '30 m/pixel', url: 'https://trek.nasa.gov/moon/trekarcgis/rest/services/LRO_LOLA_DEM_SPole75_30mp_v04/ImageServer' }
+      );
+    }
+    const rawElevation = site.surfaceData?.elevation;
+    const elevation = Number.isFinite(Number(rawElevation)) && rawElevation !== null ? Number(rawElevation) : null;
+    const analysis = site.analysis && typeof site.analysis === 'object' ? site.analysis : {};
+    return {
+      id, name, lat, lon, time,
+      coordinateType: String(site.coordinateType || 'user-geographic-planetocentric-degrees'),
+      sources,
+      surfaceData: {
+        elevation,
+        unit: String(site.surfaceData?.unit || 'm relative to lunar mean radius 1737400 m'),
+        source: String(site.surfaceData?.source || 'NASA LRO LOLA DEM South Pole 75°S v04 (30 m/pixel)'),
+        resolution: String(site.surfaceData?.resolution || '30 m/pixel'),
+        availability: elevation === null ? String(site.surfaceData?.availability || 'unavailable') : 'available'
+      },
+      analysis: {
+        illumination: analysis.illumination ?? null,
+        earthPosition: analysis.earthPosition ?? null,
+        sunPosition: analysis.sunPosition ?? null
+      }
+    };
+  });
+  const compareIds = [...new Set(body.compareIds.map(String))].filter(id => ids.has(id));
+  return { sites, compareIds };
+}
+
+app.get('/api/explorer/workspace', async (req, res) => {
+  try {
+    const workspaceId = getExplorerWorkspaceId(req, res);
+    const result = await pool.query('SELECT payload, updated_at FROM lunar_site_explorer_workspaces WHERE workspace_id = $1', [workspaceId]);
+    if (!result.rowCount) return res.json({ exists: false, sites: [], compareIds: [] });
+    res.json({ exists: true, ...result.rows[0].payload, updatedAt: result.rows[0].updated_at });
+  } catch (error) {
+    console.error('Explorer workspace read failed:', error);
+    res.status(500).json({ error: 'Не вдалося завантажити дані Explorer.' });
+  }
+});
+
+app.put('/api/explorer/workspace', async (req, res) => {
+  try {
+    const workspaceId = getExplorerWorkspaceId(req, res);
+    const payload = normalizeExplorerPayload(req.body);
+    const result = await pool.query(
+      `INSERT INTO lunar_site_explorer_workspaces (workspace_id, payload, updated_at)
+       VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP)
+       ON CONFLICT (workspace_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = CURRENT_TIMESTAMP
+       RETURNING updated_at`,
+      [workspaceId, JSON.stringify(payload)]
+    );
+    res.json({ success: true, ...payload, updatedAt: result.rows[0].updated_at });
+  } catch (error) {
+    if (error instanceof TypeError || error.message.startsWith('Очікуються') || error.message.startsWith('У робочому') || error.message.startsWith('Некоректний') || error.message.startsWith('Назва') || error.message.startsWith('Координати') || error.message.startsWith('Дата') || error.message.startsWith('Дозволені')) {
+      return res.status(400).json({ error: error.message });
+    }
+    console.error('Explorer workspace save failed:', error);
+    res.status(500).json({ error: 'Не вдалося зберегти дані Explorer.' });
+  }
+});
+
 app.post('/api/contact/send', async (req, res) => {
   try {
     const { name, email, subject, message } = req.body;

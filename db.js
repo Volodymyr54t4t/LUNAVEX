@@ -73,6 +73,15 @@ async function initializeDatabase() {
     `);
     console.log('✅ Таблиця artemis_missions готова');
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS lunar_site_explorer_workspaces (
+        workspace_id UUID PRIMARY KEY,
+        payload JSONB NOT NULL DEFAULT '{"sites":[],"compareIds":[]}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Таблиця lunar_site_explorer_workspaces готова');
+
     console.log('🌕 Усі таблиці ініціалізовано успішно!');
   } catch (err) {
     console.error('❌ Помилка ініціалізації БД:', err);
@@ -85,10 +94,11 @@ async function initializeDatabase() {
     } catch (parseErr) {
       console.error('🔎 Невдача розбору DATABASE_URL:', parseErr.message);
     }
+    throw err;
   }
 }
 
-// Виклик ініціалізації при запуску
-initializeDatabase();
+pool.ready = initializeDatabase();
+pool.ready.catch(() => {});
 
 module.exports = pool;
