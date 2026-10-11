@@ -8,6 +8,7 @@
   <title>Lunar Site Explorer — LUNAVEX</title>
   <link rel="stylesheet" href="/explorer/style.css">
   <link rel="stylesheet" href="/explorer/overrides.css">
+  <link rel="stylesheet" href="/explorer/features.css">
 </head>
 <body>
   <header class="topbar">
@@ -20,12 +21,12 @@
       <div class="map-heading"><div><span class="eyebrow">LUNAR SOUTH POLAR REGION</span><h1>Оберіть ділянку</h1></div><div class="source-status" id="sourceStatus"><i></i><span>Завантаження карти NASA…</span></div></div>
       <div class="map-shell">
         <canvas id="lunarMap" aria-label="Карта південного полюса Місяця. Перетягуйте для переміщення, клацніть для вибору точки."></canvas>
-        <div class="map-overlay top-left"><span>NASA MOON TREK · LRO WAC</span><span>ПІВДЕННА ПОЛЯРНА СТЕРЕОГРАФІЧНА · IAU 30120</span></div>
+        <div class="map-overlay top-left"><span id="mapLayerLabel">NASA MOON TREK · LRO WAC</span><span>ПІВДЕННА ПОЛЯРНА СТЕРЕОГРАФІЧНА · IAU 30120</span></div>
         <div class="map-overlay bottom-left" id="mapScale">100 км</div>
         <div class="map-tools"><button id="zoomIn" aria-label="Збільшити">+</button><button id="zoomOut" aria-label="Зменшити">−</button><button id="resetView" aria-label="Скинути вигляд">⌖</button></div>
         <div class="map-message" id="mapMessage"><span class="loader"></span><strong>Запит карти</strong><small>Отримуємо зображення з NASA Moon Trek</small><button id="retryMap" hidden>Повторити запит</button></div>
       </div>
-      <div class="map-footer"><span>Джерело: LRO LROC WAC Image Mosaic, S Pole v2 · 100 м/піксель</span><a href="https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=moon" target="_blank" rel="noreferrer">Документація NASA ↗</a></div>
+      <div class="map-footer"><span id="mapSourceInfo">Джерело: LRO LROC WAC Image Mosaic, S Pole v2 · 100 м/піксель</span><a href="https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=moon" target="_blank" rel="noreferrer">Документація NASA ↗</a></div>
     </section>
     <aside class="side-panel">
       <div class="panel-section selection-section">
@@ -40,14 +41,18 @@
         <div class="data-note"><span class="note-mark">i</span><span>Час збережеться як параметр майбутнього аналізу освітленості та геометрії Земля—Сонце. Фізичні розрахунки ще не підключені.</span></div>
       </div>
       <div class="panel-section surface-section">
-        <div class="section-title"><div><span class="eyebrow">SURFACE DATA</span><h2>Поверхня</h2></div><span class="unavailable">НЕ ЗЧИТУЄТЬСЯ</span></div>
-        <div class="surface-value"><span>Висота</span><b>Недоступна</b></div><p class="surface-explain">Поточний мозаїчний шар — зображення WAC, не висотна модель. Значення висоти не виводиться.</p>
-        <a class="source-link" href="https://trek.nasa.gov/moon/trekarcgis/rest/services/LRO_WAC_Mosaic_SPole60_100m_v02/ImageServer" target="_blank" rel="noreferrer">Метадані шару NASA ImageServer ↗</a>
+        <div class="section-title"><div><span class="eyebrow">SURFACE DATA · LOLA</span><h2>Поверхня</h2></div><span class="unavailable" id="elevationStatus">ОЧІКУЄ ТОЧКУ</span></div>
+        <div class="surface-value"><span>Висота відносно середнього радіуса</span><b id="elevationValue">—</b></div><p class="surface-explain" id="surfaceExplain">Висота буде зчитана з DEM NASA LOLA для вибраної точки. Шар покриває широти 75–90° пд. ш., роздільна здатність — 30 м/піксель. Вибрана дата не змінює статичну модель рельєфу.</p>
+        <div class="layer-switch" role="group" aria-label="Шар карти"><button type="button" id="imageryLayer" class="active" aria-pressed="true">Знімки</button><button type="button" id="terrainLayer" aria-pressed="false">Рельєф LOLA</button></div>
+        <a class="source-link" href="https://trek.nasa.gov/moon/trekarcgis/rest/services/LRO_LOLA_DEM_SPole75_30mp_v04/ImageServer" target="_blank" rel="noreferrer">NASA LRO LOLA DEM · 30 м/піксель ↗</a>
+        <a class="source-link" href="https://trek.nasa.gov/moon/trekarcgis/rest/services/LRO_WAC_Mosaic_SPole60_100m_v02/ImageServer" target="_blank" rel="noreferrer">NASA LRO WAC Mosaic · 100 м/піксель ↗</a>
       </div>
       <div class="panel-section list-section">
         <div class="section-title"><div><span class="eyebrow">RESEARCH SET · LOCAL</span><h2>Список ділянок</h2></div><span class="saved-count" id="savedCount">0 / 3+</span></div>
         <div class="site-list" id="siteList"><div class="empty-list">Виберіть точку на карті або введіть координати, щоб додати першу ділянку.</div></div>
         <div class="list-actions"><button id="saveSite" class="primary-button" disabled>＋ Зберегти ділянку</button><button id="deleteSite" class="delete-button" disabled>Видалити</button></div>
+        <div class="compare-tools"><button type="button" id="compareSites" disabled>Порівняти вибрані <span id="compareSelectionCount">0</span></button><button type="button" id="clearCompare">Очистити</button></div>
+        <div class="comparison" id="comparison" hidden aria-live="polite"></div>
       </div>
       <div class="panel-foot"><div>Типи даних: <span>NASA-зображення</span> · <span>обчислені координати</span> · <span>введені параметри</span></div><div>Список ділянок зберігається локально у браузері</div></div>
     </aside>

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lunavex-explorer-v1.2.0';
+const CACHE_NAME = 'lunavex-explorer-v1.3.1';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -14,6 +14,7 @@ const urlsToCache = [
   '/explorer/index.html',
   '/explorer/style.css',
   '/explorer/overrides.css',
+  '/explorer/features.css',
   '/explorer/script.js',
   '/artemis/',
   '/artemis/index.html',
