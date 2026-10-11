@@ -1,0 +1,103 @@
+@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Exo+2:wght@400;600&display=swap");
+
+body {
+  font-family: "Exo 2", sans-serif;
+}
+
+.stars {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.08) 1px, transparent 0),
+    radial-gradient(circle at 50% 70%, rgba(255, 255, 255, 0.06) 1px, transparent 0),
+    radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.07) 1px, transparent 0);
+  background-size: 120px 120px;
+  pointer-events: none;
+  z-index: 0;
+  animation: twinkle 8s infinite alternate;
+}
+
+@keyframes twinkle {
+  from { opacity: 0.5; }
+  to { opacity: 1; }
+}
+
+.glass-card {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  box-shadow: 0 0 40px rgba(168, 85, 247, 0.15);
+}
+
+.input-cosmic {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid #a855f7;
+  color: white;
+  padding: 14px 16px;
+  border-radius: 12px;
+  font-size: 1rem;
+  transition: all 0.3s;
+}
+
+.input-cosmic:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(168, 85, 247, 0.5);
+  border-color: #ec4899;
+}
+
+.result {
+  background: rgba(10, 40, 30, 0.5) !important;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.result.show {
+  display: block !important;
+}
+
+.result h3 {
+  color: #ec4899;
+  margin-bottom: 15px;
+  font-size: 1.3em;
+}
+
+.result p {
+  margin: 10px 0;
+  color: #e0f7ff;
+}
+
+.history-table {
+  border-collapse: collapse;
+}
+
+.history-table tbody tr {
+  transition: all 0.3s;
+  border-bottom: 1px solid rgba(168, 85, 247, 0.1);
+}
+
+.history-table tbody tr:hover {
+  background: rgba(168, 85, 247, 0.1);
+}
+
+.history-table td {
+  padding: 12px;
+  color: #e0f7ff;
+}
+
+.safe {
+  color: #10b981;
+  font-weight: bold;
+}
+
+.medium {
+  color: #f59e0b;
+  font-weight: bold;
+}
+
+.danger {
+  color: #ef4444;
+  font-weight: bold;
+}

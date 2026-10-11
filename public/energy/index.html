@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🌕 MoonSolar Lab — LunaEnergy AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Exo+2:wght@400;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../css/common.css">
+</head>
+
+<body class="bg-[#05070f] text-white min-h-screen overflow-x-hidden relative transition-colors duration-300"
+    data-theme="dark">
+
+    <div class="stars fixed inset-0 pointer-events-none z-0"></div>
+
+    <div class="relative z-10 max-w-6xl mx-auto p-6">
+        <header class="site-header glass-card p-6 mb-8 rounded-3xl">
+            <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <a href="/" class="logo-link">
+                    <span class="text-2xl">🌕</span>
+                    <span>LUNAENERGY AI</span>
+                </a>
+                <div class="flex flex-col gap-4 md:flex-row md:items-center">
+                    <nav class="header-nav">
+                        <a href="/" class="nav-link">Головна</a>
+                        <a href="/energy" class="nav-link">LunaEnergy</a>
+                        <a href="/radiation" class="nav-link">LunaRadiation</a>
+                        <a href="/thermo" class="nav-link">LunaThermo</a>
+                        <a href="/artemis" class="nav-link">Artemis 2</a>
+                        <a href="/analytics.html" class="nav-link">Аналітика</a>
+                        <a href="/about.html" class="nav-link">Про нас</a>
+                        <a href="/contact.html" class="nav-link">Контакти</a>
+                        <a href="/privacy-policy.html" class="nav-link">Політика</a>
+                    </nav>
+                    <button id="themeToggle" type="button" class="tab-btn px-4 py-2 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-black text-sm font-semibold">🌙</button>
+                </div>
+            </div>
+        </header>
+
+        <div class="glass-card p-4 mb-8 rounded-3xl grid grid-cols-2 md:grid-cols-5 gap-3">
+            <button id="tab0" class="tab-btn active px-4 py-3 rounded-2xl" onclick="switchTab(0)">Симулятор</button>
+            <button id="tab1" class="tab-btn px-4 py-3 rounded-2xl" onclick="switchTab(1)">Аналітика</button>
+            <button id="tab2" class="tab-btn px-4 py-3 rounded-2xl" onclick="switchTab(2)">Порівняння</button>
+            <button id="tab3" class="tab-btn px-4 py-3 rounded-2xl" onclick="switchTab(3)">Теорія</button>
+            <button id="tab4" class="tab-btn px-4 py-3 rounded-2xl" onclick="switchTab(4)">Наука</button>
+        </div>
+
+        <!-- TAB 0: СИМУЛЯТОР -->
+        <div id="tabContent0">
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="glass-card p-8 rounded-3xl">
+                    <h2 class="text-3xl font-bold mb-8 text-center text-cyan-300 drop-shadow-md">Новий експеримент</h2>
+                    <form id="experimentForm" class="space-y-6">
+                        <div>
+                            <label class="block text-cyan-300 mb-1 font-medium">Кут нахилу панелі (°)</label>
+                            <input type="number" id="angle" step="0.1" min="0" max="90" required class="input-cosmic">
+                            <p class="text-xs text-cyan-400 mt-1">0° — перпендикулярно Сонцю (максимальна ефективність)
+                            </p>
+                            <p id="angleError" class="text-red-400 text-xs mt-1 hidden"></p>
+                        </div>
+                        <div>
+                            <label class="block text-cyan-300 mb-1 font-medium">Інтенсивність світла (0–1)</label>
+                            <input type="number" id="sunlight" step="0.01" min="0" max="1" required
+                                class="input-cosmic">
+                            <p class="text-xs text-cyan-400 mt-1">1.0 — повне сонячне світло без атмосфери</p>
+                            <p id="sunlightError" class="text-red-400 text-xs mt-1 hidden"></p>
+                        </div>
+                        <div>
+                            <label class="block text-cyan-300 mb-1 font-medium">Температура (°C)</label>
+                            <input type="number" id="temperature" step="0.1" required class="input-cosmic">
+                            <p class="text-xs text-cyan-400 mt-1">На Місяці від -173°C до +127°C</p>
+                        </div>
+                        <div>
+                            <label class="block text-cyan-300 mb-1 font-medium">Пиловий фактор (0–1)</label>
+                            <input type="number" id="dust" step="0.01" min="0" max="1" required class="input-cosmic">
+                            <p class="text-xs text-cyan-400 mt-1">0 — чиста панель, 1 — повністю запилена</p>
+                            <p id="dustError" class="text-red-400 text-xs mt-1 hidden"></p>
+                        </div>
+                        <button type="submit"
+                            class="w-full py-5 bg-gradient-to-r from-cyan-600 via-purple-600 to-fuchsia-600 hover:from-fuchsia-600 hover:via-purple-600 hover:to-cyan-600 transition-all duration-500 font-bold text-xl rounded-2xl shadow-[0_0_40px_#22d3ee] hover:shadow-[0_0_70px_#a855f7]">
+                            🚀 РОЗРАХУВАТИ
+                        </button>
+                    </form>
+                </div>
+
+                <div id="resultCard"
+                    class="glass-card p-10 rounded-3xl flex flex-col items-center justify-center text-center hidden">
+                    <div class="text-8xl mb-6 drop-shadow-[0_0_30px_#10b981]">☀️</div>
+                    <p class="text-2xl text-cyan-200 mb-4">Ефективність:</p>
+                    <div id="efficiencyValue"
+                        class="text-8xl md:text-9xl font-extrabold text-transparent bg-clip-text bg-gradient-to-br from-emerald-400 via-teal-400 to-cyan-400">
+                    </div>
+                    <p class="text-xl text-green-400 mt-6 font-medium">Дані збережено в базі</p>
+                </div>
+            </div>
+
+            <div class="mt-12 glass-card p-8 rounded-3xl">
+                <div class="flex justify-between items-center mb-6 flex-col md:flex-row gap-4">
+                    <h2 class="text-3xl font-bold flex items-center gap-4">
+                        <span>Історія експериментів</span>
+                        <span
+                            class="text-sm bg-cyan-900/70 px-4 py-1.5 rounded-full border border-cyan-500/40">оновлюється кожні 15 с</span>
+                    </h2>
+                    <div class="flex gap-3 flex-col md:flex-row w-full md:w-auto">
+                        <button id="exportCsvBtn"
+                            class="px-5 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-emerald-600 hover:to-green-600 rounded-xl font-medium shadow-lg">
+                            📥 CSV
+                        </button>
+                        <button id="clearAllBtn"
+                            class="px-5 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-rose-600 hover:to-red-600 rounded-xl font-medium shadow-lg">
+                            🗑️ Очистити
+                        </button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table id="historyTable" class="w-full text-left min-w-[800px]"></table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 1: АНАЛІТИКА -->
+        <div id="tabContent1" class="hidden">
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-5 mb-12">
+                <div class="glass-card p-6 text-center">
+                    <p class="text-cyan-400 text-sm font-medium">Всього експериментів</p>
+                    <p class="text-4xl font-bold mt-2" id="value-total">—</p>
+                </div>
+                <div class="glass-card p-6 text-center">
+                    <p class="text-cyan-400 text-sm font-medium">Середня ефективність</p>
+                    <p class="text-4xl font-bold mt-2 text-emerald-400" id="value-avg">—</p>
+                </div>
+                <div class="glass-card p-6 text-center">
+                    <p class="text-cyan-400 text-sm font-medium">Найкраща</p>
+                    <p class="text-4xl font-bold mt-2 text-purple-400" id="value-max">—</p>
+                </div>
+                <div class="glass-card p-6 text-center">
+                    <p class="text-cyan-400 text-sm font-medium">Найгірша</p>
+                    <p class="text-4xl font-bold mt-2 text-orange-400" id="value-min">—</p>
+                </div>
+                <div class="glass-card p-6 text-center">
+                    <p class="text-cyan-400 text-sm font-medium">Оптимальний кут</p>
+                    <p class="text-4xl font-bold mt-2 text-cyan-300" id="value-best-angle">—</p>
+                </div>
+                <div class="glass-card p-6 text-center">
+                    <p class="text-cyan-400 text-sm font-medium">Середня температура</p>
+                    <p class="text-4xl font-bold mt-2" id="value-avg-temp">—</p>
+                </div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="glass-card p-8 rounded-3xl">
+                    <h3 class="text-2xl mb-6 text-center text-cyan-200">Ефективність залежно від кута</h3>
+                    <canvas id="angleChart" height="280"></canvas>
+                </div>
+                <div class="glass-card p-8 rounded-3xl">
+                    <h3 class="text-2xl mb-6 text-center text-cyan-200">Динаміка ефективності в часі</h3>
+                    <canvas id="timeChart" height="280"></canvas>
+                </div>
+            </div>
+
+            <div id="recommendation" class="mt-12 glass-card p-10 rounded-3xl text-center text-3xl font-bold hidden">
+            </div>
+        </div>
+
+        <!-- TAB 2: ПОРІВНЯННЯ -->
+        <div id="tabContent2" class="hidden">
+            <div class="glass-card p-8 rounded-3xl mb-10">
+                <h2 class="text-3xl font-bold mb-6 text-center text-cyan-300">Порівняння експериментів</h2>
+                <p class="text-center text-gray-300 mb-8">Оберіть 2–4 експерименти для порівняння</p>
+
+                <div class="mb-8">
+                    <label class="block text-cyan-300 mb-3 font-medium">Оберіть експерименти:</label>
+                    <select id="compareSelect" multiple
+                        class="w-full h-64 bg-black/50 border border-cyan-500/50 rounded-xl p-4 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"></select>
+                    <p class="text-sm text-gray-400 mt-2">Утримуйте Ctrl (Cmd) для множинного вибору</p>
+                </div>
+
+                <button id="compareBtn"
+                    class="w-full py-4 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-cyan-600 hover:to-purple-600 transition-all font-bold text-lg rounded-2xl shadow-[0_0_30px_#a855f7]">
+                    ПОРІВНЯТИ ВИБРАНЕ
+                </button>
+            </div>
+
+            <div id="compareResult" class="hidden glass-card p-8 rounded-3xl mb-10 overflow-x-auto"></div>
+
+            <div id="compareCharts" class="grid md:grid-cols-2 gap-8 mt-10 hidden">
+                <div class="glass-card p-8 rounded-3xl">
+                    <h3 class="text-2xl mb-6 text-center text-cyan-200">Порівняння ефективності</h3>
+                    <canvas id="compareBarChart" height="300"></canvas>
+                </div>
+                <div class="glass-card p-8 rounded-3xl">
+                    <h3 class="text-2xl mb-6 text-center text-cyan-200">Параметри в порівнянні</h3>
+                    <canvas id="compareRadarChart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: ТЕОРІЯ -->
+        <div id="tabContent3" class="hidden">
+            <div class="glass-card p-10 rounded-3xl">
+                <h1
+                    class="text-4xl font-bold text-center mb-10 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-400">
+                    Теорія та особливості сонячних панелей на Місяці</h1>
+
+                <section class="mb-12">
+                    <h2 class="text-3xl font-bold mb-6 text-cyan-300">Чому косинус кута важливий?</h2>
+                    <p class="text-gray-300 mb-6">
+                        На Місяці немає атмосфери, тому сонячне випромінювання приходить практично без розсіювання.
+                        Ефективність панелі пропорційна косинусу кута падіння променів (закон Ламберта). Якщо панель
+                        перпендикулярна Сонцю (0°), cos(0) = 1 → максимальна ефективність. При 60° cos(60°) = 0.5 →
+                        ефективність падає вдвічі.
+                    </p>
+                    <p class="text-sm text-gray-400 italic">Формула: P = P₀ × cos(θ)</p>
+                </section>
+
+                <section class="mb-12">
+                    <h2 class="text-3xl font-bold mb-6 text-cyan-300">Чому пил — критичний фактор?</h2>
+                    <p class="text-gray-300 mb-6">
+                        Реголіт (місячний пил) дуже дрібний, гострий і електростатично заряджений. Він налипає на
+                        поверхню панелей і блокує світло. Навіть шар 0.1–0.3 мм може знизити ефективність на 50–90%. На
+                        Місяці немає вітру чи дощу, тому пил накопичується постійно.
+                    </p>
+                    <p class="text-sm text-orange-400">Дослідження NASA показують експоненціальне падіння ефективності з ростом шару пилу.</p>
+                </section>
+
+                <section class="mb-12">
+                    <h2 class="text-3xl font-bold mb-6 text-cyan-300">Температура: вплив на модель</h2>
+                    <p class="text-gray-300">
+                        У реальних панелях температура впливає на ефективність. На Місяці панелі можуть нагріватися до +120°C вдень 
+                        і охолоджуватися до -170°C вночі. У нашій моделі ми фокусуємося на геометрії та пилі як основних факторах.
+                    </p>
+                </section>
+            </div>
+        </div>
+
+        <!-- TAB 4: НАУКОВІ ФУНКЦІЇ -->
+        <div id="tabContent4" class="hidden">
+            <div class="glass-card p-8 rounded-3xl mb-10">
+                <h2 class="text-3xl font-bold text-center text-cyan-300 mb-2">🔬 Розширена Наукова Аналітика</h2>
+                <p class="text-center text-gray-400 mb-8">Дослідження Місячної енергетики на найвищому рівні</p>
+            </div>
+
+            <!-- Порівняння Земля vs Місяць -->
+            <div id="comparisonContainer" class="glass-card p-8 rounded-3xl mb-8">
+                <h3 class="text-2xl font-bold text-cyan-300 mb-6">Порівняння Земля vs Місяць</h3>
+                <div class="animate-pulse">Завантаження...</div>
+            </div>
+
+            <!-- Вплив пилу -->
+            <div id="dustContainer" class="glass-card p-8 rounded-3xl mb-8">
+                <h3 class="text-2xl font-bold text-yellow-300 mb-6">💨 Вплив космічного пилу на ефективність</h3>
+                <div class="mb-6">
+                    <label class="block text-cyan-300 mb-3">Рівень забруднення (%)</label>
+                    <input type="range" id="dustPercentage" min="0" max="100" value="50" class="w-full h-2 bg-black/40 rounded-lg cursor-pointer">
+                    <button onclick="loadDustImpact()" class="mt-4 px-6 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg font-bold">Розрахувати</button>
+                </div>
+                <div class="animate-pulse">Завантаження...</div>
+            </div>
+
+            <!-- ROI калькулятор -->
+            <div id="roiContainer" class="glass-card p-8 rounded-3xl">
+                <h3 class="text-2xl font-bold text-emerald-300 mb-6">📊 ROI Калькулятор для Місячної Станції</h3>
+                <div class="animate-pulse">Завантаження...</div>
+            </div>
+        </div>
+
+        <footer class="relative z-10 py-8 text-center text-cyan-400/70 border-t border-cyan-500/20 mt-16">
+            <p class="text-sm">LunaEnergy AI — частина Luna AI Research Center. Наукові модулі для місячних місій.</p>
+            <p class="text-sm mt-2">
+                <a href="/contact.html" class="text-cyan-300 underline">Контакти</a> ·
+                <a href="/privacy-policy.html" class="text-cyan-300 underline">Політика</a>
+            </p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🌡️ LunaThermo AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../css/common.css">
+</head>
+
+<body class="bg-[#05070f] text-white min-h-screen overflow-x-hidden relative transition-colors duration-300" data-theme="dark">
+    <div class="stars fixed inset-0 pointer-events-none z-0"></div>
+
+    <div class="relative z-10 max-w-6xl mx-auto p-6">
+        <header class="site-header glass-card p-6 mb-8 rounded-none">
+            <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div class="flex items-center gap-4">
+                    <a href="/" class="logo-link">
+                        <span class="text-2xl">🌕</span>
+                        <span>Luna AI Research Center</span>
+                    </a>
+                </div>
+
+                <nav class="header-nav">
+                    <a href="/" class="nav-link">Головна</a>
+                    <a href="/energy" class="nav-link">LunaEnergy</a>
+                    <a href="/radiation" class="nav-link">LunaRadiation</a>
+                    <a href="/thermo" class="nav-link">LunaThermo</a>
+                    <a href="/artemis" class="nav-link">Artemis 2</a>
+                    <a href="/analytics.html" class="nav-link">Аналітика</a>
+                    <a href="/about.html" class="nav-link">Про нас</a>
+                    <a href="/contact.html" class="nav-link">Контакти</a>
+                    <a href="/privacy-policy.html" class="nav-link">Політика</a>
+                </nav>
+            </div>
+        </header>
+
+        <div class="glass-card p-8 rounded-3xl mb-8">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div class="flex items-center gap-4">
+                    <div class="text-6xl drop-shadow-[0_0_15px_#f59e0b]">🌡️</div>
+                    <div>
+                        <h1 class="text-4xl md:text-5xl font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-yellow-400 to-orange-400" style="font-family: 'Orbitron', sans-serif;">
+                            LUNATHERMO AI
+                        </h1>
+                        <p class="text-orange-300/90 text-lg">Моделювання теплопередачі на Місяці</p>
+                    </div>
+                </div>
+                <button id="themeToggle" class="text-3xl hover:scale-110 transition-transform" title="Змінити тему">
+                    🌙
+                </button>
+            </div>
+        </div>
+
+        <!-- Форма розрахунку -->
+        <div class="glass-card p-8 rounded-3xl mb-8">
+            <h2 class="text-3xl font-bold mb-8 text-center text-orange-300 drop-shadow-md">Розрахунок теплопередачі</h2>
+
+            <form id="calculatorForm" class="form-container">
+                <div class="form-grid">
+                    <div>
+                        <label for="material" class="form-label">Матеріал:</label>
+                        <select id="material" name="material" class="input-cosmic" required>
+                            <option value="">-- Виберіть матеріал --</option>
+                            <option value="aluminum">Алюміній (k=205 Вт/(м·К))</option>
+                            <option value="plastic">Пластик (k=0.2 Вт/(м·К))</option>
+                            <option value="glass">Скло (k=0.8 Вт/(м·К))</option>
+                            <option value="insulation">Ізоляція (k=0.04 Вт/(м·К))</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="thickness" class="form-label">Товщина (м):</label>
+                        <input type="number" id="thickness" name="thickness" class="input-cosmic" step="0.01" min="0.01" placeholder="0.1" required>
+                    </div>
+
+                    <div>
+                        <label for="area" class="form-label">Площа (м²):</label>
+                        <input type="number" id="area" name="area" class="input-cosmic" step="0.01" min="0.01" placeholder="10" required>
+                    </div>
+
+                    <div>
+                        <label for="insideTemp" class="form-label">Темпер. всередині (°C):</label>
+                        <input type="number" id="insideTemp" name="insideTemp" class="input-cosmic" step="1" placeholder="20" required>
+                    </div>
+
+                    <div>
+                        <label for="outsideTemp" class="form-label">Темпер. зовні (°C):</label>
+                        <input type="number" id="outsideTemp" name="outsideTemp" class="input-cosmic" step="1" placeholder="-150" required>
+                    </div>
+
+                    <div class="flex items-end">
+                        <button type="submit" class="w-full py-3 bg-gradient-to-r from-orange-600 via-yellow-600 to-orange-600 hover:from-yellow-600 hover:via-orange-600 hover:to-yellow-600 transition-all duration-500 font-bold text-lg rounded-2xl shadow-[0_0_40px_#f59e0b] hover:shadow-[0_0_70px_#fbbf24]">
+                            🚀 РОЗРАХУВАТИ
+                        </button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Повідомлення про помилки -->
+            <div id="errorMessage" class="message message-error mt-6" style="display: none;"></div>
+
+            <!-- Результат розрахунку -->
+            <div id="resultCard" class="result-card mt-8" style="display: none;">
+                <h3>📊 Результат розрахунку</h3>
+                <div class="result-grid">
+                    <div class="result-item">
+                        <span class="label">Матеріал:</span>
+                        <span id="resultMaterial" class="value"></span>
+                    </div>
+                    <div class="result-item">
+                        <span class="label">Коефіцієнт:</span>
+                        <span id="resultCoefficient" class="value"></span>
+                    </div>
+                    <div class="result-item">
+                        <span class="label">Товщина:</span>
+                        <span id="resultThickness" class="value"></span>
+                    </div>
+                    <div class="result-item">
+                        <span class="label">Площа:</span>
+                        <span id="resultArea" class="value"></span>
+                    </div>
+                    <div class="result-item">
+                        <span class="label">ΔТ:</span>
+                        <span id="resultTempDiff" class="value"></span>
+                    </div>
+                    <div class="result-item">
+                        <span class="label">Q (Вт):</span>
+                        <span id="resultHeatLoss" class="value"></span>
+                    </div>
+                </div>
+                <div class="recommendation">
+                    <strong>🎯 Рекомендація:</strong>
+                    <p id="resultRecommendation"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Історія експериментів -->
+        <div class="glass-card p-8 rounded-3xl">
+            <h2 class="text-3xl font-bold mb-8 text-center text-orange-300">📜 Історія експериментів</h2>
+
+            <div id="loadingMessage" class="message message-info" style="display: none;">
+                ⏳ Завантаження даних...
+            </div>
+
+            <div id="noDataMessage" class="message message-info" style="display: none;">
+                📭 Експериментів ще немає. Створіть перший!
+            </div>
+
+            <div class="overflow-x-auto">
+                <table id="experimentsTable" class="experiments-table w-full" style="display: none;">
+                    <thead>
+                        <tr class="bg-black/40 text-orange-300 text-sm uppercase tracking-wider">
+                            <th class="p-4">#</th>
+                            <th class="p-4">Матеріал</th>
+                            <th class="p-4">Товщина</th>
+                            <th class="p-4">Площа</th>
+                            <th class="p-4">ΔТ</th>
+                            <th class="p-4">k</th>
+                            <th class="p-4">Q (Вт)</th>
+                            <th class="p-4">Рекомендація</th>
+                            <th class="p-4">Дата</th>
+                        </tr>
+                    </thead>
+                    <tbody id="experimentsTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <footer class="relative z-10 py-8 text-center text-orange-400/70 border-t border-orange-500/20 mt-16">
+        <p>🌡️ LunaThermo AI © 2026 | Моделювання теплопередачі на Місяці</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+
+</html>

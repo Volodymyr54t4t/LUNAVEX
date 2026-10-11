@@ -1,0 +1,19 @@
+{
+  "name": "luna-ai-unified",
+  "version": "1.0.0",
+  "description": "Об'єднана система досліджень Місяця - енергія, радіація, теплопередача",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["луна", "дослідження", "ai", "енергія", "радіація", "теплопередача"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "pg": "^8.11.0",
+    "dotenv": "^16.3.1"
+  }
+}

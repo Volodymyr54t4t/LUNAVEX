@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Аналітика — Luna AI Research Center</title>
+    <meta name="description" content="Аналітична панель Luna AI Research Center з ключовими метриками, інсайтами та науковими висновками.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/css/common.css">
+    <style>
+        body {
+            font-family: "Exo 2", sans-serif;
+            background: radial-gradient(circle at 15% 18%, rgba(34, 211, 238, 0.08), transparent 24%),
+              radial-gradient(circle at 85% 12%, rgba(168, 85, 247, 0.12), transparent 18%),
+              linear-gradient(180deg, #05070f 0%, #090f1f 60%, #060914 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+
+        .page-shell {
+            position: relative;
+            z-index: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 1.5rem 4rem;
+        }
+
+        .hero-card,
+        .metric-card,
+        .insight-card {
+            background: rgba(10, 18, 36, 0.88);
+            border: 1px solid rgba(103, 232, 249, 0.16);
+            backdrop-filter: blur(20px);
+            border-radius: 28px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.22);
+        }
+
+        .hero-card {
+            padding: 2.5rem;
+        }
+
+        .metric-card,
+        .insight-card {
+            padding: 1.8rem;
+        }
+
+        .metric-label {
+            color: rgba(56, 189, 248, 0.9);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-size: 0.825rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .metric-value {
+            font-size: clamp(2rem, 4vw, 3.5rem);
+            font-weight: 800;
+            color: #38bdf8;
+            line-height: 1;
+        }
+
+        .metric-desc {
+            color: #cbd5e1;
+            margin-top: 0.75rem;
+        }
+
+        .chart-section {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(103, 232, 249, 0.18);
+            border-radius: 28px;
+            padding: 1.8rem;
+            margin-top: 1.5rem;
+        }
+
+        .feature-list li {
+            margin-bottom: 0.75rem;
+        }
+    </style>
+</head>
+<body class="overflow-x-hidden">
+    <div class="stars fixed inset-0 pointer-events-none z-0"></div>
+
+    <div class="page-shell">
+        <header class="site-header glass-card mb-8 rounded-none">
+            <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <a href="/" class="logo-link">
+                    <span class="text-2xl">🌕</span>
+                    <span>Luna AI Research Center</span>
+                </a>
+                <nav class="header-nav">
+                    <a href="/" class="nav-link">Головна</a>
+                    <a href="/energy" class="nav-link">LunaEnergy</a>
+                    <a href="/radiation" class="nav-link">LunaRadiation</a>
+                    <a href="/thermo" class="nav-link">LunaThermo</a>
+                    <a href="/artemis" class="nav-link">Artemis 2</a>
+                    <a href="/analytics.html" class="nav-link">Аналітика</a>
+                    <a href="/about.html" class="nav-link">Про нас</a>
+                    <a href="/contact.html" class="nav-link">Контакти</a>
+                </nav>
+            </div>
+        </header>
+
+        <section class="hero-card mb-8">
+            <div class="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                    <p class="uppercase tracking-[0.3em] text-cyan-300/80 mb-4">Панель аналітики</p>
+                    <h1 class="text-5xl md:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-400 to-fuchsia-400">
+                        Наукові дані Luna AI Research Center
+                    </h1>
+                    <p class="mt-4 max-w-2xl text-slate-300 leading-8">
+                        Інтерактивні метрики, технічні висновки і точні сценарії для енергетичних, радіаційних та термодинамічних аналізів на Місяці.
+                    </p>
+                </div>
+                <div class="rounded-3xl border border-cyan-500/20 bg-slate-950/20 p-6">
+                    <p class="text-sm text-slate-400 uppercase tracking-[0.24em]">Останні оновлення</p>
+                    <p class="mt-3 text-3xl font-bold text-cyan-300">Вбудована аналітика</p>
+                    <p class="mt-2 text-slate-300">Розширено карту науки: енергія, радіація, тепло, Artemis 2.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid gap-6 xl:grid-cols-2">
+            <article class="metric-card">
+                <div class="metric-label">ЛунаЕнергія</div>
+                <div class="metric-value">82.7%</div>
+                <p class="metric-desc">Середня ефективність сонячних панелей за реалістичними моделями місячного освітлення.</p>
+            </article>
+            <article class="metric-card">
+                <div class="metric-label">LunaRadiation</div>
+                <div class="metric-value">0.16 Sv</div>
+                <p class="metric-desc">Оцінка дози опромінення за пролітні сценарії і щільне покриття реголіту.</p>
+            </article>
+            <article class="metric-card">
+                <div class="metric-label">LunaThermo</div>
+                <div class="metric-value">–125°C</div>
+                <p class="metric-desc">Мінімальний прогнозований температурний режим у нічному циклі для місячних станцій.</p>
+            </article>
+            <article class="metric-card">
+                <div class="metric-label">Artemis 2</div>
+                <div class="metric-value">384 400 km</div>
+                <p class="metric-desc">Максимальна відстань від Землі, що врахована для дельта-v та радіаційної експозиції.</p>
+            </article>
+        </section>
+
+        <section class="chart-section mt-8">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+                <div>
+                    <h2 class="text-3xl font-bold text-cyan-300">Модельний графік</h2>
+                    <p class="text-slate-300 mt-2">Симуляція зміни енергоефективності та радіаційних ризиків у місячному циклі.</p>
+                </div>
+                <div class="text-cyan-200">Оновлено: сьогодні</div>
+            </div>
+            <canvas id="analyticsChart" height="280"></canvas>
+        </section>
+
+        <section class="insight-card mt-8">
+            <h2 class="text-3xl font-bold text-white mb-4">Інсайти</h2>
+            <ul class="feature-list text-slate-300 leading-8">
+                <li>Гібридний підхід до енергооптимізації: сонячні масиви + тепловий акумулятор для нічної фази.</li>
+                <li>Радіація реголіту знижує вразливість екіпажу більш ніж на 34% при тришаровому захисті.</li>
+                <li>Теплова стабілізація термодомів дозволяє мінімізувати втрати до 18% при екстремальних нічних температурах.</li>
+                <li>Artemis 2 аналітика враховує баланс між delta-v, масою палива та груповими допусковими випромінюваннями.</li>
+            </ul>
+        </section>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('analyticsChart');
+        if (ctx) {
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['День 1', 'День 5', 'День 10', 'День 15', 'День 20', 'День 25', 'День 29'],
+                    datasets: [
+                        {
+                            label: 'Енергоефективність',
+                            data: [76, 81, 84, 82, 79, 83, 82],
+                            borderColor: '#22d3ee',
+                            backgroundColor: 'rgba(34, 211, 238, 0.18)',
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 4
+                        },
+                        {
+                            label: 'Радіаційне навантаження',
+                            data: [0.12, 0.14, 0.18, 0.16, 0.15, 0.17, 0.16],
+                            borderColor: '#c084fc',
+                            backgroundColor: 'rgba(192, 132, 252, 0.18)',
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(148, 163, 184, 0.16)' },
+                            ticks: { color: '#cbd5e1' }
+                        },
+                        x: {
+                            grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                            ticks: { color: '#cbd5e1' }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#e2e8f0' }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+
+    <footer class="relative z-10 py-8 text-center text-cyan-400/70 border-t border-cyan-500/20 mt-16">
+        <p class="text-sm">Luna AI Research Center — аналітика, що підтримує рішення для майбутніх космічних місій.</p>
+        <p class="text-sm mt-2">
+            <a href="/contact.html" class="text-cyan-300 underline">Контакти</a> ·
+            <a href="/privacy-policy.html" class="text-cyan-300 underline">Політика</a>
+        </p>
+    </footer>
+</body>
+</html>
