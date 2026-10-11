@@ -3,3 +3,4 @@
 @media(min-width:761px){.side-panel{overflow-x:hidden;overflow-y:auto}.list-section{flex:0 0 auto;min-height:0}.panel-foot{position:relative;z-index:1;flex:0 0 auto;background:var(--panel)}}
 
 #workspaceStatus{margin-top:5px;color:#9bb1c0;font:8px var(--mono)}#workspaceStatus[data-state="saved"]{color:#83cda1}#workspaceStatus[data-state="error"]{color:#ed8791}
+#illuminationLink{display:block;margin-top:9px;padding:9px 10px;border:1px solid #2b6472;background:#0c2430;color:#8fdde8;text-decoration:none;font:9px var(--mono);text-align:center}#illuminationLink:hover{background:#123443}

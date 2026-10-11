@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07111d">
+  <meta name="description" content="Sun & Illumination Analyzer — положення Сонця та інтервали геометричного освітлення на південному полюсі Місяця за JPL Horizons.">
+  <title>Sun &amp; Illumination Analyzer — LUNAVEX</title>
+  <link rel="stylesheet" href="/explorer/style.css">
+  <link rel="stylesheet" href="/explorer/overrides.css">
+  <link rel="stylesheet" href="/illumination/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="LUNAVEX — головна"><span class="brand-icon">L</span><span>LUNAVEX<small>LUNAR INTELLIGENCE &amp; EXPLORATION</small></span></a>
+    <div class="module-name"><span class="eyebrow">ДОСЛІДНИЦЬКИЙ МОДУЛЬ 02</span><strong>Sun &amp; Illumination Analyzer</strong><small>Measure the lunar horizon in time.</small></div>
+    <a class="back-link" id="explorerLink" href="/explorer/" target="_blank" rel="noopener">← Lunar Site Explorer</a>
+  </header>
+  <main class="illumination-page">
+    <section class="intro-row">
+      <div><span class="eyebrow">JPL HORIZONS · LUNAR SOUTH POLAR REGION</span><h1>Сонце та освітленість</h1><p>Положення Сонця над геометричним локальним горизонтом. Значення надходять з ефемериди JPL Horizons для вибраної ділянки Місяця.</p></div>
+      <div class="source-badge" id="connectionStatus" data-state="loading">Підключення…</div>
+    </section>
+
+    <section class="controls panel">
+      <div class="control-head"><div><span class="eyebrow">RESEARCH PARAMETERS</span><h2>Параметри дослідження</h2></div><a href="/explorer/" target="_blank" rel="noopener">Карта ділянок ↗</a></div>
+      <div class="form-grid">
+        <label>Ділянка з Explorer<select id="siteSelect"><option value="">Виберіть збережену ділянку…</option></select></label>
+        <label>Назва ділянки<input id="siteName" maxlength="60" placeholder="Напр., Shackleton Rim"></label>
+        <label>Широта · planetocentric<input id="latitude" type="number" min="-90" max="-60" step="0.000001" value="-85" required></label>
+        <label>Довгота · східна, °<input id="longitude" type="number" min="-180" max="180" step="0.000001" value="20" required></label>
+        <label>Початок · UTC<input id="startDate" type="date" required></label>
+        <label>Завершення · UTC<input id="endDate" type="date" required></label>
+        <label>Крок вимірювання<select id="stepMinutes"><option value="5">5 хв</option><option value="10">10 хв</option><option value="15" selected>15 хв</option><option value="30">30 хв</option><option value="60">1 год</option><option value="120">2 год</option><option value="360">6 год</option></select></label>
+        <div class="time-explainer"><b>Часова шкала: UTC</b><span>JPL Horizons повертає UT; у таблиці та графіках часові позначки показані як UTC.</span></div>
+      </div>
+      <div class="form-actions"><button id="runAnalysis" class="primary-button">Розрахувати освітленість</button><span id="formMessage" role="status"></span></div>
+    </section>
+
+    <section class="results" id="results" hidden>
+      <div class="result-heading"><div><span class="eyebrow">OBSERVER EPHEMERIS · AIRLESS AZ/EL</span><h2 id="resultTitle">Результат аналізу</h2><p id="resultMeta"></p></div><div class="export-actions"><button id="saveResearch">Зберегти дослідження</button><button id="exportCsv">Експорт CSV</button><button id="exportJson">Експорт JSON</button></div></div>
+      <div class="metric-grid">
+        <article class="metric"><span>Час над горизонтом</span><b id="metricPercent">—</b><small id="metricLight">—</small></article>
+        <article class="metric"><span>Геометрична темрява</span><b id="metricDark">—</b><small>Сонце нижче 0° elevation</small></article>
+        <article class="metric"><span>Мінімум / максимум висоти</span><b id="metricElevation">—</b><small>Airless elevation, градуси</small></article>
+        <article class="metric"><span>Вимірювань</span><b id="metricSamples">—</b><small id="metricStep">—</small></article>
+      </div>
+      <div class="chart-grid">
+        <article class="chart-card panel"><div class="chart-title"><div><span class="eyebrow">SOLAR ELEVATION</span><h3>Висота Сонця над горизонтом</h3></div><span>градуси · 0° = геометричний горизонт</span></div><canvas id="elevationChart" aria-label="Графік висоти Сонця над геометричним горизонтом у часі"></canvas><div class="chart-tooltip" id="elevationTooltip" role="status"></div></article>
+        <article class="chart-card panel"><div class="chart-title"><div><span class="eyebrow">SOLAR AZIMUTH</span><h3>Азимут Сонця</h3></div><span>градуси · від півночі за годинниковою</span></div><canvas id="azimuthChart" aria-label="Графік азимуту Сонця у часі"></canvas><div class="chart-tooltip" id="azimuthTooltip" role="status"></div></article>
+      </div>
+      <div class="detail-grid">
+        <article class="panel detail-card"><div class="chart-title"><div><span class="eyebrow">HORIZON CROSSINGS</span><h3>Сходи та заходи</h3></div></div><div id="eventsList" class="event-list"></div></article>
+        <article class="panel detail-card"><div class="chart-title"><div><span class="eyebrow">LIGHT / DARK WINDOWS</span><h3>Інтервали</h3></div></div><div id="periodsList" class="period-list"></div></article>
+      </div>
+      <article class="panel method-note"><div><span class="eyebrow">MODEL &amp; LIMITATIONS</span><h3>Метод і джерела</h3><p id="modelInfo"></p><p id="terrainInfo"></p><p id="precisionInfo"></p><a href="https://ssd-api.jpl.nasa.gov/doc/horizons.html" target="_blank" rel="noreferrer">JPL Horizons API documentation ↗</a> <a href="https://naif.jpl.nasa.gov/naif/data_generic.html" target="_blank" rel="noreferrer">NAIF SPICE kernel catalog ↗</a></div></article>
+    </section>
+
+    <section class="panel saved-research"><div class="control-head"><div><span class="eyebrow">DATABASE · PRIVATE TO THIS BROWSER</span><h2>Збережені дослідження</h2></div><button id="refreshSaved">Оновити список</button></div><label>Відкрити результат<select id="savedSelect"><option value="">Завантаження…</option></select></label><p>Результати та часові ряди зберігаються в PostgreSQL і прив’язані до браузерного робочого набору Explorer.</p></section>
+    <footer class="page-footer">Геометричне освітлення не враховує блокування променя локальним рельєфом. Значення не є вимірюваннями яскравості поверхні.</footer>
+  </main>
+  <script src="/illumination/script.js" defer></script>
+</body>
+</html>

@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Anonymous browser workspaces keep Explorer data private to a persistent cookie.
@@ -17,6 +17,13 @@ app.use('/api/explorer', (req, res, next) => {
   pool.ready.then(() => next()).catch(error => {
     console.error('Explorer database unavailable:', error);
     res.status(503).json({ error: 'База даних Explorer наразі недоступна.' });
+  });
+});
+
+app.use('/api/illumination', (req, res, next) => {
+  pool.ready.then(() => next()).catch(error => {
+    console.error('Illumination database unavailable:', error);
+    res.status(503).json({ error: 'База даних аналізу освітленості наразі недоступна.' });
   });
 });
 
@@ -117,6 +124,150 @@ app.put('/api/explorer/workspace', async (req, res) => {
     }
     console.error('Explorer workspace save failed:', error);
     res.status(500).json({ error: 'Не вдалося зберегти дані Explorer.' });
+  }
+});
+
+const ILLUMINATION_MODEL = 'JPL Horizons observer ephemeris; Moon topocentric cylindrical site; airless apparent AZ/EL; model v1';
+const HORIZONS_API = 'https://ssd.jpl.nasa.gov/api/horizons.api';
+const LUNAR_MEAN_RADIUS_KM = 1737.4;
+
+function parseHorizonCsv(result) {
+  const marker = result.indexOf('$$SOE');
+  const end = result.indexOf('$$EOE', marker);
+  if (marker < 0 || end < 0) throw new Error('JPL Horizons не повернув таблицю часових вимірювань.');
+  const rows = result.slice(marker + 5, end).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const data = rows.map(line => {
+    const columns = line.split(',');
+    const time = Date.parse(`${columns[0].trim().replace(/\s+/g, ' ')} UTC`);
+    const azimuth = Number(columns[3]);
+    const elevation = Number(columns[4]);
+    if (!Number.isFinite(time) || !Number.isFinite(azimuth) || !Number.isFinite(elevation)) return null;
+    return { time: new Date(time).toISOString(), azimuthDeg: azimuth, elevationDeg: elevation };
+  }).filter(Boolean);
+  if (data.length < 2) throw new Error('JPL Horizons повернув недостатньо валідних вимірювань.');
+  return data;
+}
+
+function summarizeIllumination(data) {
+  const events = [];
+  for (let i = 1; i < data.length; i++) {
+    const before = data[i - 1];
+    const after = data[i];
+    if ((before.elevationDeg < 0 && after.elevationDeg >= 0) || (before.elevationDeg >= 0 && after.elevationDeg < 0)) {
+      const fraction = -before.elevationDeg / (after.elevationDeg - before.elevationDeg);
+      const time = Date.parse(before.time) + fraction * (Date.parse(after.time) - Date.parse(before.time));
+      events.push({ time: new Date(time).toISOString(), type: after.elevationDeg >= 0 ? 'rise' : 'set', bracketMinutes: (Date.parse(after.time) - Date.parse(before.time)) / 60000 });
+    }
+  }
+  const start = Date.parse(data[0].time);
+  const end = Date.parse(data[data.length - 1].time);
+  const periods = [];
+  let cursor = start;
+  let illuminated = data[0].elevationDeg >= 0;
+  for (const event of events) {
+    const eventTime = Date.parse(event.time);
+    if (eventTime > cursor) periods.push({ start: new Date(cursor).toISOString(), end: new Date(eventTime).toISOString(), illuminated, durationMinutes: (eventTime - cursor) / 60000 });
+    cursor = eventTime;
+    illuminated = event.type === 'rise';
+  }
+  if (end > cursor) periods.push({ start: new Date(cursor).toISOString(), end: new Date(end).toISOString(), illuminated, durationMinutes: (end - cursor) / 60000 });
+  const totalMinutes = (end - start) / 60000;
+  const lightMinutes = periods.filter(period => period.illuminated).reduce((sum, period) => sum + period.durationMinutes, 0);
+  const elevations = data.map(row => row.elevationDeg);
+  return {
+    events, periods, totalMinutes, illuminatedMinutes: lightMinutes,
+    darkMinutes: totalMinutes - lightMinutes,
+    illuminatedPercent: totalMinutes ? lightMinutes / totalMinutes * 100 : 0,
+    minElevationDeg: Math.min(...elevations), maxElevationDeg: Math.max(...elevations),
+    crossingMethod: 'Linear interpolation between adjacent Horizons samples; each event is bracketed by one selected sample interval.'
+  };
+}
+
+app.post('/api/illumination/analyze', async (req, res) => {
+  try {
+    const { site, startDate, endDate, stepMinutes } = req.body || {};
+    const lat = Number(site?.lat);
+    const lon = Number(site?.lon);
+    const step = Number(stepMinutes);
+    if (!Number.isFinite(lat) || lat < -90 || lat > -60 || !Number.isFinite(lon) || lon < -180 || lon > 180) return res.status(400).json({ error: 'Для аналізу введіть широту від −90° до −60° і довготу від −180° до 180°.' });
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    const validDate = value => datePattern.test(value || '') && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+    if (!validDate(startDate) || !validDate(endDate) || endDate < startDate) return res.status(400).json({ error: 'Вкажіть коректні дати початку й завершення.' });
+    if (!Number.isInteger(step) || step < 1 || step > 360) return res.status(400).json({ error: 'Часовий крок має бути цілим числом від 1 до 360 хвилин.' });
+    const start = Date.parse(`${startDate}T00:00:00Z`);
+    const stop = Date.parse(`${endDate}T00:00:00Z`) + 86400000;
+    const spanDays = (stop - start) / 86400000;
+    if (spanDays > 30) return res.status(400).json({ error: 'Період аналізу не може перевищувати 30 діб.' });
+    const sampleCount = Math.floor((stop - start) / (step * 60000)) + 1;
+    if (sampleCount > 3000) return res.status(400).json({ error: `Занадто багато вимірювань (${sampleCount}). Збільште крок щонайменше до ${Math.ceil((stop - start) / (2999 * 60000))} хв.` });
+
+    // Explorer stores planetocentric coordinates and LOLA height relative to the 1737.4 km mean radius.
+    // Horizons cylindrical coordinates preserve that same planetocentric latitude and east longitude.
+    const hasLolaElevation = site?.elevationM !== null && site?.elevationM !== undefined && Number.isFinite(Number(site.elevationM));
+    const elevationOffsetM = hasLolaElevation ? Number(site.elevationM) : 0;
+    const radialKm = LUNAR_MEAN_RADIUS_KM + elevationOffsetM / 1000;
+    const latitudeRadians = lat * Math.PI / 180;
+    const siteCoordinate = `${lon},${(radialKm * Math.cos(latitudeRadians)).toFixed(6)},${(radialKm * Math.sin(latitudeRadians)).toFixed(6)}`;
+    const parameters = new URLSearchParams({
+      format: 'json', COMMAND: '10', EPHEM_TYPE: 'OBSERVER', CENTER: 'coord@301',
+      COORD_TYPE: 'CYLINDRICAL', SITE_COORD: siteCoordinate,
+      START_TIME: `${startDate} 00:00`, STOP_TIME: `${new Date(stop).toISOString().slice(0, 10)} 00:00`,
+      STEP_SIZE: `${step} min`, QUANTITIES: '4', ANG_FORMAT: 'DEG',
+      TIME_TYPE: 'UT', TIME_DIGITS: 'SECONDS', CSV_FORMAT: 'YES'
+    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    let horizons;
+    try {
+      const response = await fetch(`${HORIZONS_API}?${parameters}`, { signal: controller.signal });
+      horizons = await response.json();
+      if (!response.ok || horizons.error) throw new Error(horizons.error || `JPL Horizons HTTP ${response.status}`);
+    } finally { clearTimeout(timeout); }
+    const data = parseHorizonCsv(horizons.result || '');
+    const summary = summarizeIllumination(data);
+    const lunarFrame = (horizons.result.match(/Center pole\/equ\s*:\s*([^\n]+)/i) || [])[1]?.trim() || null;
+    res.json({ success: true, site: { name: String(site?.name || 'Ділянка').slice(0, 60), lat, lon, elevationM: hasLolaElevation ? elevationOffsetM : null }, parameters: { startDate, endDate, stepMinutes: step, timeStandard: 'JPL Horizons UT; timestamps after 1962 are UTC' }, model: ILLUMINATION_MODEL, lunarFrame, radiusAssumptionKm: hasLolaElevation ? null : LUNAR_MEAN_RADIUS_KM, sources: [{ name: 'JPL Horizons API — observer ephemeris', url: HORIZONS_API }, { name: 'Horizons manual — topocentric lunar sites and AZ/EL', url: 'https://ssd.jpl.nasa.gov/horizons/manual.html' }], terrain: { mode: 'geometric-horizon', used: false, limitation: 'Локальне затінення рельєфом не розраховане: окремий DEM-горизонт навколо ділянки не завантажувався.' }, data, summary });
+  } catch (error) {
+    console.error('Illumination analysis failed:', error);
+    res.status(error.name === 'AbortError' ? 504 : 502).json({ error: error.name === 'AbortError' ? 'JPL Horizons не відповів за 45 секунд. Спробуйте ще раз.' : (error.message || 'Не вдалося отримати ефемериду JPL Horizons.') });
+  }
+});
+
+app.get('/api/illumination/researches', async (req, res) => {
+  try {
+    const workspaceId = getExplorerWorkspaceId(req, res);
+    const result = await pool.query('SELECT id, name, site, parameters, model_version, created_at FROM illumination_researches WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 50', [workspaceId]);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Illumination research list failed:', error);
+    res.status(500).json({ error: 'Не вдалося завантажити збережені дослідження.' });
+  }
+});
+
+app.get('/api/illumination/researches/:id', async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Некоректний ідентифікатор дослідження.' });
+    const workspaceId = getExplorerWorkspaceId(req, res);
+    const result = await pool.query('SELECT id, name, site, parameters, result, model_version, created_at FROM illumination_researches WHERE workspace_id = $1 AND id = $2', [workspaceId, req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Дослідження не знайдено.' });
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Illumination research read failed:', error);
+    res.status(500).json({ error: 'Не вдалося відкрити це дослідження.' });
+  }
+});
+
+app.post('/api/illumination/researches', async (req, res) => {
+  try {
+    const workspaceId = getExplorerWorkspaceId(req, res);
+    const { name, site, parameters, result } = req.body || {};
+    if (!site || !parameters || !result || !Array.isArray(result.data) || result.data.length < 2 || result.data.length > 3000) return res.status(400).json({ error: 'Некоректний результат аналізу для збереження.' });
+    const researchName = String(name || site.name || 'Дослідження освітленості').trim().slice(0, 100) || 'Дослідження освітленості';
+    const saved = await pool.query('INSERT INTO illumination_researches (workspace_id, name, site, parameters, result, model_version) VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6) RETURNING id, created_at', [workspaceId, researchName, JSON.stringify(site), JSON.stringify(parameters), JSON.stringify(result), ILLUMINATION_MODEL]);
+    res.json({ success: true, ...saved.rows[0] });
+  } catch (error) {
+    console.error('Illumination research save failed:', error);
+    res.status(500).json({ error: 'Не вдалося зберегти дослідження.' });
   }
 });
 

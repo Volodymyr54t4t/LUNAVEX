@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lunavex-explorer-v1.4.0';
+const CACHE_NAME = 'lunavex-explorer-v1.5.0';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -16,6 +16,10 @@ const urlsToCache = [
   '/explorer/overrides.css',
   '/explorer/features.css',
   '/explorer/script.js',
+  '/illumination/',
+  '/illumination/index.html',
+  '/illumination/style.css',
+  '/illumination/script.js',
   '/artemis/',
   '/artemis/index.html',
   '/analytics.html',
@@ -58,6 +62,11 @@ self.addEventListener('activate', (event) => {
 
 // Обробка запитів
 self.addEventListener('fetch', (event) => {
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin === self.location.origin && requestUrl.pathname.startsWith('/api/')) {
+    event.respondWith(fetch(event.request, { cache: 'no-store' }));
+    return;
+  }
   event.respondWith(
     caches.match(event.request)
       .then((response) => {

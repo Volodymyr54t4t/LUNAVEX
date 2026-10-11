@@ -102,6 +102,27 @@
       setWorkspaceStatus('saved', 'Підключено до бази даних');
       renderSites();
       renderComparisonControls();
+      const query = new URLSearchParams(location.search);
+      const requestedSite = query.get('site');
+      const requestedRecord = sites.find(site => site.id === requestedSite);
+      if (requestedRecord) {
+        siteName.value = requestedRecord.name;
+        timeInput.value = query.get('time') || requestedRecord.time || utcFieldValue();
+        setViewForPoint(requestedRecord.lat, requestedRecord.lon);
+        setPoint(requestedRecord.lat, requestedRecord.lon, requestedRecord.id);
+        renderSites();
+      } else if (Number.isFinite(Number(query.get('lat'))) && Number.isFinite(Number(query.get('lon')))) {
+        const lat = Number(query.get('lat')), lon = Number(query.get('lon'));
+        if (lat >= -90 && lat <= -60 && lon >= -180 && lon <= 180) {
+          setViewForPoint(lat, lon);
+          setPoint(lat, lon);
+          siteName.value = query.get('name') || '';
+          timeInput.value = query.get('time') || utcFieldValue();
+          const analyzerQuery = new URLSearchParams({ lat: lat.toFixed(6), lon: lon.toFixed(6) });
+          if (siteName.value.trim()) analyzerQuery.set('name', siteName.value.trim());
+          document.getElementById('illuminationLink').href = `/illumination/?${analyzerQuery}`;
+        }
+      }
     } catch (error) {
       workspaceLoaded = false;
       saveButton.disabled = true;
@@ -252,6 +273,10 @@
       siteName.value = '';
       timeInput.value = utcFieldValue();
     }
+    const analyzerQuery = new URLSearchParams({ lat: lat.toFixed(6), lon: lon.toFixed(6) });
+    if (savedId) analyzerQuery.set('site', savedId);
+    if (siteName.value.trim()) analyzerQuery.set('name', siteName.value.trim());
+    document.getElementById('illuminationLink').href = `/illumination/?${analyzerQuery}`;
     saveButton.disabled = !workspaceLoaded;
     saveButton.textContent = savedId ? 'Зберегти зміни' : '＋ Зберегти ділянку';
     deleteButton.disabled = !savedId;

@@ -82,6 +82,21 @@ async function initializeDatabase() {
     `);
     console.log('✅ Таблиця lunar_site_explorer_workspaces готова');
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS illumination_researches (
+        id BIGSERIAL PRIMARY KEY,
+        workspace_id UUID NOT NULL,
+        name TEXT NOT NULL,
+        site JSONB NOT NULL,
+        parameters JSONB NOT NULL,
+        result JSONB NOT NULL,
+        model_version TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS illumination_researches_workspace_created_idx ON illumination_researches (workspace_id, created_at DESC)');
+    console.log('✅ Таблиця illumination_researches готова');
+
     console.log('🌕 Усі таблиці ініціалізовано успішно!');
   } catch (err) {
     console.error('❌ Помилка ініціалізації БД:', err);
