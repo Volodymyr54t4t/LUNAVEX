@@ -2,7 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('node:crypto');
 const pool = require('./db');
+const { hashPassword, verifyPassword, hashSessionToken, createSessionToken, normalizeEmail } = require('./lib/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -11,6 +13,137 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+const SESSION_COOKIE = 'lunavex_session';
+const SESSION_LIFETIME_DAYS = 30;
+const secureCookies = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+function cookieValue(req, name) {
+  const entry = (req.headers.cookie || '').split(';').map(part => part.trim()).find(part => part.startsWith(`${name}=`));
+  if (!entry) return '';
+  try { return decodeURIComponent(entry.slice(name.length + 1)); } catch { return ''; }
+}
+function setSessionCookie(res, token) {
+  res.append('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${SESSION_LIFETIME_DAYS * 86400}; HttpOnly; SameSite=Lax${secureCookies}`);
+}
+function clearSessionCookie(res) {
+  res.append('Set-Cookie', `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secureCookies}`);
+}
+function requireAccount(req, res) {
+  if (req.accountId) return true;
+  res.status(401).json({ error: 'Щоб зберігати дані, увійдіть до акаунта LUNAVEX.', code: 'AUTH_REQUIRED' });
+  return false;
+}
+function verifyRequestOrigin(req, res) {
+  const origin = req.get('origin');
+  if (origin) {
+    try {
+      const parsed = new URL(origin);
+      if (parsed.host !== req.get('host') || (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:')) throw new Error('origin mismatch');
+    } catch {
+      res.status(403).json({ error: 'Запит відхилено: джерело не збігається з адресою LUNAVEX.' });
+      return false;
+    }
+  }
+  return true;
+}
+
+app.use('/api', async (req, res, next) => {
+  try {
+    await pool.ready;
+    const token = cookieValue(req, SESSION_COOKIE);
+    if (token) {
+      const result = await pool.query(
+        'SELECT a.id, a.email FROM lunar_sessions s JOIN lunar_accounts a ON a.id = s.account_id WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP',
+        [hashSessionToken(token)]
+      );
+      if (result.rowCount) { req.accountId = result.rows[0].id; req.account = { id: result.rows[0].id, email: result.rows[0].email }; }
+    }
+    next();
+  } catch (error) {
+    console.error('API authentication lookup failed:', error);
+    res.status(503).json({ error: 'Сервіс акаунтів тимчасово недоступний.' });
+  }
+});
+
+async function migrateAnonymousWorkspace(client, anonymousId, accountId) {
+  if (!anonymousId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(anonymousId) || anonymousId === accountId) return;
+  const oldWorkspace = await client.query('SELECT payload FROM lunar_site_explorer_workspaces WHERE workspace_id = $1 FOR UPDATE', [anonymousId]);
+  const accountWorkspace = await client.query('SELECT payload FROM lunar_site_explorer_workspaces WHERE workspace_id = $1 FOR UPDATE', [accountId]);
+  if (oldWorkspace.rowCount) {
+    const oldData = oldWorkspace.rows[0].payload || {};
+    const accountData = accountWorkspace.rows[0]?.payload || {};
+    const sites = new Map();
+    for (const site of [...(oldData.sites || []), ...(accountData.sites || [])]) sites.set(site.id, site);
+    const payload = { sites: [...sites.values()], compareIds: [...new Set([...(oldData.compareIds || []), ...(accountData.compareIds || [])])].filter(id => sites.has(id)) };
+    await client.query(`INSERT INTO lunar_site_explorer_workspaces (workspace_id,payload,updated_at) VALUES ($1,$2::jsonb,CURRENT_TIMESTAMP) ON CONFLICT (workspace_id) DO UPDATE SET payload=EXCLUDED.payload,updated_at=CURRENT_TIMESTAMP`, [accountId, JSON.stringify(payload)]);
+    await client.query('DELETE FROM lunar_site_explorer_workspaces WHERE workspace_id = $1', [anonymousId]);
+  }
+  for (const table of ['illumination_researches', 'earthlink_researches']) {
+    await client.query(`UPDATE ${table} SET workspace_id = $1 WHERE workspace_id = $2`, [accountId, anonymousId]);
+  }
+}
+
+async function startAccountSession(req, res, account) {
+  const anonymousId = cookieValue(req, 'lunavex_explorer_workspace');
+  const token = createSessionToken();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await migrateAnonymousWorkspace(client, anonymousId, account.id);
+    const previousToken = cookieValue(req, SESSION_COOKIE);
+    if (previousToken) await client.query('DELETE FROM lunar_sessions WHERE token_hash = $1', [hashSessionToken(previousToken)]);
+    await client.query('DELETE FROM lunar_sessions WHERE expires_at <= CURRENT_TIMESTAMP');
+    await client.query('INSERT INTO lunar_sessions (token_hash,account_id,expires_at) VALUES ($1,$2,CURRENT_TIMESTAMP + ($3 * INTERVAL \'1 day\'))', [hashSessionToken(token), account.id, SESSION_LIFETIME_DAYS]);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { client.release(); }
+  setSessionCookie(res, token);
+}
+
+app.get('/api/auth/me', (req, res) => res.json({ authenticated: Boolean(req.account), account: req.account || null }));
+app.post('/api/auth/register', async (req, res) => {
+  if (!verifyRequestOrigin(req, res)) return;
+  try {
+    const email = normalizeEmail(req.body?.email), password = String(req.body?.password || '');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return res.status(400).json({ error: 'Введіть коректну адресу електронної пошти.' });
+    if ([...password].length < 12 || Buffer.byteLength(password, 'utf8') > 1024) return res.status(400).json({ error: 'Пароль має містити щонайменше 12 символів і не перевищувати 1024 байти.' });
+    const passwordHash = await hashPassword(password), accountId = crypto.randomUUID();
+    const result = await pool.query('INSERT INTO lunar_accounts (id,email,password_hash) VALUES ($1,$2,$3) RETURNING id,email', [accountId, email, passwordHash]);
+    const account = result.rows[0];
+    await startAccountSession(req, res, account);
+    res.status(201).json({ authenticated: true, account });
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'Акаунт із цією електронною поштою вже існує.' });
+    console.error('Account registration failed:', error);
+    res.status(500).json({ error: 'Не вдалося створити акаунт.' });
+  }
+});
+app.post('/api/auth/login', async (req, res) => {
+  if (!verifyRequestOrigin(req, res)) return;
+  try {
+    const email = normalizeEmail(req.body?.email), password = String(req.body?.password || '');
+    if (!email || !password || Buffer.byteLength(password, 'utf8') > 1024) return res.status(400).json({ error: 'Введіть електронну пошту та пароль.' });
+    const result = await pool.query('SELECT id,email,password_hash FROM lunar_accounts WHERE email = $1', [email]);
+    if (!result.rowCount || !(await verifyPassword(password, result.rows[0].password_hash))) return res.status(401).json({ error: 'Електронна пошта або пароль неправильні.' });
+    const account = { id: result.rows[0].id, email: result.rows[0].email };
+    await startAccountSession(req, res, account);
+    res.json({ authenticated: true, account });
+  } catch (error) {
+    console.error('Account login failed:', error);
+    res.status(500).json({ error: 'Не вдалося увійти до акаунта.' });
+  }
+});
+app.post('/api/auth/logout', async (req, res) => {
+  if (!verifyRequestOrigin(req, res)) return;
+  try {
+    const token = cookieValue(req, SESSION_COOKIE);
+    if (token) await pool.query('DELETE FROM lunar_sessions WHERE token_hash = $1', [hashSessionToken(token)]);
+    clearSessionCookie(res);
+    res.json({ success: true });
+  } catch (error) { console.error('Account logout failed:', error); res.status(500).json({ error: 'Не вдалося завершити сесію.' }); }
+});
 
 // Anonymous browser workspaces keep Explorer data private to a persistent cookie.
 app.use('/api/explorer', (req, res, next) => {
@@ -27,7 +160,15 @@ app.use('/api/illumination', (req, res, next) => {
   });
 });
 
+app.use('/api/earthlink', (req, res, next) => {
+  pool.ready.then(() => next()).catch(error => {
+    console.error('EarthLink database unavailable:', error);
+    res.status(503).json({ error: 'База даних EarthLink наразі недоступна.' });
+  });
+});
+
 function getExplorerWorkspaceId(req, res) {
+  if (req.accountId) return req.accountId;
   const cookie = (req.headers.cookie || '').split(';').map(part => part.trim()).find(part => part.startsWith('lunavex_explorer_workspace='));
   const candidate = cookie ? decodeURIComponent(cookie.slice('lunavex_explorer_workspace='.length)) : '';
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)) return candidate;
@@ -108,6 +249,7 @@ app.get('/api/explorer/workspace', async (req, res) => {
 
 app.put('/api/explorer/workspace', async (req, res) => {
   try {
+    if (!requireAccount(req, res)) return;
     const workspaceId = getExplorerWorkspaceId(req, res);
     const payload = normalizeExplorerPayload(req.body);
     const result = await pool.query(
@@ -235,6 +377,7 @@ app.post('/api/illumination/analyze', async (req, res) => {
 
 app.get('/api/illumination/researches', async (req, res) => {
   try {
+    if (!requireAccount(req, res)) return;
     const workspaceId = getExplorerWorkspaceId(req, res);
     const result = await pool.query('SELECT id, name, site, parameters, model_version, created_at FROM illumination_researches WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 50', [workspaceId]);
     res.json(result.rows);
@@ -246,6 +389,7 @@ app.get('/api/illumination/researches', async (req, res) => {
 
 app.get('/api/illumination/researches/:id', async (req, res) => {
   try {
+    if (!requireAccount(req, res)) return;
     if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Некоректний ідентифікатор дослідження.' });
     const workspaceId = getExplorerWorkspaceId(req, res);
     const result = await pool.query('SELECT id, name, site, parameters, result, model_version, created_at FROM illumination_researches WHERE workspace_id = $1 AND id = $2', [workspaceId, req.params.id]);
@@ -259,6 +403,7 @@ app.get('/api/illumination/researches/:id', async (req, res) => {
 
 app.post('/api/illumination/researches', async (req, res) => {
   try {
+    if (!requireAccount(req, res)) return;
     const workspaceId = getExplorerWorkspaceId(req, res);
     const { name, site, parameters, result } = req.body || {};
     if (!site || !parameters || !result || !Array.isArray(result.data) || result.data.length < 2 || result.data.length > 3000) return res.status(400).json({ error: 'Некоректний результат аналізу для збереження.' });
@@ -269,6 +414,54 @@ app.post('/api/illumination/researches', async (req, res) => {
     console.error('Illumination research save failed:', error);
     res.status(500).json({ error: 'Не вдалося зберегти дослідження.' });
   }
+});
+
+const EARTHLINK_MODEL = 'JPL Horizons observer ephemeris; target Earth center; Moon topocentric cylindrical site; airless AZ/EL; model v1';
+const { parseHorizonCsv: parseEarthLinkCsv, summarizeVisibility } = require('./lib/earthlink');
+
+app.post('/api/earthlink/analyze', async (req, res) => {
+  try {
+    const { site, startDate, endDate, stepMinutes } = req.body || {};
+    const lat = Number(site?.lat), lon = Number(site?.lon), step = Number(stepMinutes);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) return res.status(400).json({ error: 'Введіть місячну планетоцентричну широту −90°…90° і східну довготу −180°…180°.' });
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    const validDate = value => datePattern.test(value || '') && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+    if (!validDate(startDate) || !validDate(endDate) || endDate < startDate) return res.status(400).json({ error: 'Вкажіть коректні дати початку й завершення аналізу.' });
+    if (!Number.isInteger(step) || step < 1 || step > 360) return res.status(400).json({ error: 'Часовий крок має бути цілим числом від 1 до 360 хвилин.' });
+    const start = Date.parse(`${startDate}T00:00:00Z`), stop = Date.parse(`${endDate}T00:00:00Z`) + 86400000;
+    if ((stop - start) / 86400000 > 30) return res.status(400).json({ error: 'Період аналізу не може перевищувати 30 діб.' });
+    const sampleCount = Math.floor((stop - start) / (step * 60000)) + 1;
+    if (sampleCount > 3000) return res.status(400).json({ error: `Занадто багато вимірювань (${sampleCount}); збільште часовий крок.` });
+    const hasElevation = site?.elevationM !== null && site?.elevationM !== undefined && Number.isFinite(Number(site.elevationM));
+    const radiusKm = 1737.4 + (hasElevation ? Number(site.elevationM) / 1000 : 0);
+    const latRad = lat * Math.PI / 180;
+    const siteCoordinate = `${lon},${(radiusKm * Math.cos(latRad)).toFixed(6)},${(radiusKm * Math.sin(latRad)).toFixed(6)}`;
+    const parameters = new URLSearchParams({ format: 'json', COMMAND: '399', EPHEM_TYPE: 'OBSERVER', CENTER: 'coord@301', COORD_TYPE: 'CYLINDRICAL', SITE_COORD: siteCoordinate, START_TIME: `${startDate} 00:00`, STOP_TIME: `${new Date(stop).toISOString().slice(0, 10)} 00:00`, STEP_SIZE: `${step} min`, QUANTITIES: '4,20', ANG_FORMAT: 'DEG', RANGE_UNITS: 'KM', TIME_TYPE: 'UT', TIME_DIGITS: 'SECONDS', CSV_FORMAT: 'YES' });
+    const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 45000);
+    let horizons;
+    try { const response = await fetch(`https://ssd.jpl.nasa.gov/api/horizons.api?${parameters}`, { signal: controller.signal }); horizons = await response.json(); if (!response.ok || horizons.error) throw new Error(horizons.error || `JPL Horizons HTTP ${response.status}`); }
+    finally { clearTimeout(timeout); }
+    const data = parseEarthLinkCsv(horizons.result || '');
+    const summary = summarizeVisibility(data);
+    const lunarFrame = (horizons.result.match(/Center pole\/equ\s*:\s*([^\n]+)/i) || [])[1]?.trim() || null;
+    res.json({ success: true, site: { name: String(site?.name || 'Ділянка').slice(0, 60), lat, lon, elevationM: hasElevation ? Number(site.elevationM) : null }, parameters: { startDate, endDate, stepMinutes: step, timeStandard: 'JPL Horizons UT; timestamps after 1962 are UTC' }, model: EARTHLINK_MODEL, lunarFrame, radiusAssumptionKm: hasElevation ? null : 1737.4, sources: [{ name: 'JPL Horizons API — observer ephemeris', url: 'https://ssd-api.jpl.nasa.gov/api/horizons.api' }, { name: 'Horizons API and manual', url: 'https://ssd-api.jpl.nasa.gov/doc/horizons.html' }], terrain: { mode: 'unavailable', used: false, limitation: 'Аналіз локального горизонту рельєфу недоступний: наявне значення LOLA є висотою лише однієї точки, а DEM-профіль навколишніх азимутів не завантажується.' }, linkBudget: { calculated: false, limitation: 'Геометрична видимість не враховує радіочастоту, потужність, антени, перешкоди та бюджет каналу.' }, data, summary });
+  } catch (error) {
+    console.error('EarthLink analysis failed:', error);
+    res.status(error.name === 'AbortError' ? 504 : 502).json({ error: error.name === 'AbortError' ? 'JPL Horizons не відповів за 45 секунд. Спробуйте ще раз.' : (error.message || 'Не вдалося отримати ефемериду JPL Horizons.') });
+  }
+});
+
+app.get('/api/earthlink/researches', async (req, res) => {
+  try { if (!requireAccount(req, res)) return; const workspaceId = getExplorerWorkspaceId(req, res); const result = await pool.query('SELECT id, name, site, parameters, model_version, created_at FROM earthlink_researches WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 50', [workspaceId]); res.json(result.rows); }
+  catch (error) { console.error('EarthLink research list failed:', error); res.status(500).json({ error: 'Не вдалося завантажити збережені дослідження.' }); }
+});
+app.get('/api/earthlink/researches/:id', async (req, res) => {
+  try { if (!requireAccount(req, res)) return; if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Некоректний ідентифікатор.' }); const workspaceId = getExplorerWorkspaceId(req, res); const result = await pool.query('SELECT id, name, site, parameters, result, model_version, created_at FROM earthlink_researches WHERE workspace_id = $1 AND id = $2', [workspaceId, req.params.id]); if (!result.rowCount) return res.status(404).json({ error: 'Дослідження не знайдено.' }); res.json(result.rows[0]); }
+  catch (error) { console.error('EarthLink research read failed:', error); res.status(500).json({ error: 'Не вдалося відкрити це дослідження.' }); }
+});
+app.post('/api/earthlink/researches', async (req, res) => {
+  try { if (!requireAccount(req, res)) return; const workspaceId = getExplorerWorkspaceId(req, res); const { name, site, parameters, result } = req.body || {}; if (!site || !parameters || !result || !Array.isArray(result.data) || result.data.length < 2 || result.data.length > 3000) return res.status(400).json({ error: 'Некоректний результат для збереження.' }); const researchName = String(name || site.name || 'EarthLink').trim().slice(0, 100) || 'EarthLink'; const saved = await pool.query('INSERT INTO earthlink_researches (workspace_id, name, site, parameters, result, model_version) VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6) RETURNING id, created_at', [workspaceId, researchName, JSON.stringify(site), JSON.stringify(parameters), JSON.stringify(result), EARTHLINK_MODEL]); res.json({ success: true, ...saved.rows[0] }); }
+  catch (error) { console.error('EarthLink research save failed:', error); res.status(500).json({ error: 'Не вдалося зберегти дослідження.' }); }
 });
 
 app.post('/api/contact/send', async (req, res) => {
@@ -300,6 +493,7 @@ app.post('/api/energy/calculate', async (req, res) => {
   const { angle, sunlight, temperature, dust } = req.body;
   
   try {
+    if (!requireAccount(req, res)) return;
     // Валідація
     if (angle === undefined || angle < 0 || angle > 90) {
       return res.status(400).json({ error: 'Невірний кут (0-90°)' });
@@ -316,8 +510,8 @@ app.post('/api/energy/calculate', async (req, res) => {
 
     // Збереження в БД
     const result = await pool.query(
-      'INSERT INTO energy_experiments (angle, sunlight, temperature, dust, efficiency) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [angle, sunlight, temperature, dust, efficiency]
+      'INSERT INTO energy_experiments (account_id, angle, sunlight, temperature, dust, efficiency) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [req.accountId, angle, sunlight, temperature, dust, efficiency]
     );
 
     res.json({
@@ -335,7 +529,7 @@ app.post('/api/energy/calculate', async (req, res) => {
 app.get('/api/energy/experiments', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM energy_experiments ORDER BY created_at DESC'
+      'SELECT * FROM energy_experiments WHERE account_id = $1 ORDER BY created_at DESC', [req.accountId || null]
     );
     res.json(result.rows);
   } catch (err) {
@@ -354,8 +548,8 @@ app.get('/api/energy/stats', async (req, res) => {
         COALESCE(ROUND((MAX(efficiency) * 100)::numeric, 2), 0) AS max_efficiency,
         COALESCE(ROUND(AVG(angle)::numeric, 1), 0) AS avg_angle,
         COALESCE(ROUND(AVG(temperature)::numeric, 1), 0) AS avg_temperature
-      FROM energy_experiments
-    `);
+      FROM energy_experiments WHERE account_id = $1
+    `, [req.accountId || null]);
 
     res.json(result.rows[0] || {
       total: '0',
@@ -374,7 +568,8 @@ app.get('/api/energy/stats', async (req, res) => {
 // POST /api/energy/clear - Очистити енергетичні експерименти
 app.post('/api/energy/clear', async (req, res) => {
   try {
-    await pool.query('DELETE FROM energy_experiments');
+    if (!requireAccount(req, res)) return;
+    await pool.query('DELETE FROM energy_experiments WHERE account_id = $1', [req.accountId]);
     res.json({ success: true, message: 'Усі енергетичні експерименти видалено' });
   } catch (err) {
     res.status(500).json({ error: 'Помилка очищення' });
@@ -506,6 +701,7 @@ const radiationCoefficients = {
 // POST /api/radiation/calculate - Розрахунок радіаційного захисту
 app.post('/api/radiation/calculate', async (req, res) => {
   try {
+    if (!requireAccount(req, res)) return;
     const { material, thickness, radiationLevel } = req.body;
 
     // Валідація
@@ -519,8 +715,8 @@ app.post('/api/radiation/calculate', async (req, res) => {
 
     // Збереження в БД
     const result = await pool.query(
-      'INSERT INTO radiation_experiments (material, thickness, radiation_level, penetration) VALUES ($1, $2, $3, $4) RETURNING *',
-      [material, thickness, radiationLevel, penetration]
+      'INSERT INTO radiation_experiments (account_id, material, thickness, radiation_level, penetration) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [req.accountId, material, thickness, radiationLevel, penetration]
     );
 
     res.json({
@@ -538,7 +734,7 @@ app.post('/api/radiation/calculate', async (req, res) => {
 app.get('/api/radiation/experiments', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM radiation_experiments ORDER BY created_at DESC'
+      'SELECT * FROM radiation_experiments WHERE account_id = $1 ORDER BY created_at DESC', [req.accountId || null]
     );
     res.json(result.rows);
   } catch (err) {
@@ -549,7 +745,8 @@ app.get('/api/radiation/experiments', async (req, res) => {
 // POST /api/radiation/clear - Очистити радіаційні експерименти
 app.post('/api/radiation/clear', async (req, res) => {
   try {
-    await pool.query('DELETE FROM radiation_experiments');
+    if (!requireAccount(req, res)) return;
+    await pool.query('DELETE FROM radiation_experiments WHERE account_id = $1', [req.accountId]);
     res.json({ success: true, message: 'Усі радіаційні експерименти видалено' });
   } catch (err) {
     res.status(500).json({ error: 'Помилка очищення' });
@@ -762,6 +959,7 @@ app.post('/api/thermo/thermal-balance', async (req, res) => {
 // POST /api/thermo/calculate - Розрахунок теплопередачі
 app.post('/api/thermo/calculate', async (req, res) => {
   try {
+    if (!requireAccount(req, res)) return;
     const { material, thickness, area, insideTemp, outsideTemp } = req.body;
 
     // Валідація
@@ -798,9 +996,9 @@ app.post('/api/thermo/calculate', async (req, res) => {
 
     // Збереження в БД
     const result = await pool.query(
-      `INSERT INTO thermo_experiments (material, thickness, area, inside_temp, outside_temp, coefficient, heat_loss, recommendation) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [material, thickness, area, insideTemp, outsideTemp, coefficient, heatLoss, recommendation]
+      `INSERT INTO thermo_experiments (account_id, material, thickness, area, inside_temp, outside_temp, coefficient, heat_loss, recommendation) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [req.accountId, material, thickness, area, insideTemp, outsideTemp, coefficient, heatLoss, recommendation]
     );
 
     res.json({
@@ -830,7 +1028,7 @@ app.post('/api/thermo/calculate', async (req, res) => {
 app.get('/api/thermo/experiments', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM thermo_experiments ORDER BY created_at DESC'
+      'SELECT * FROM thermo_experiments WHERE account_id = $1 ORDER BY created_at DESC', [req.accountId || null]
     );
 
     const formattedExperiments = result.rows.map(exp => ({
@@ -854,7 +1052,8 @@ app.get('/api/thermo/experiments', async (req, res) => {
 // POST /api/thermo/clear - Очистити термо експерименти
 app.post('/api/thermo/clear', async (req, res) => {
   try {
-    await pool.query('DELETE FROM thermo_experiments');
+    if (!requireAccount(req, res)) return;
+    await pool.query('DELETE FROM thermo_experiments WHERE account_id = $1', [req.accountId]);
     res.json({ success: true, message: 'Усі термо експерименти видалено' });
   } catch (err) {
     res.status(500).json({ error: 'Помилка очищення' });
@@ -922,10 +1121,11 @@ app.post('/api/artemis/compute-exposure', async (req, res) => {
 // POST /api/artemis/log-mission - Збереження сценарію Artemis
 app.post('/api/artemis/log-mission', async (req, res) => {
   try {
+    if (!requireAccount(req, res)) return;
     const { missionName, crewSize, missionDurationDays, deltaVTotal, radiationExposure, safetyIndex, missionNotes } = req.body;
     const result = await pool.query(
-      `INSERT INTO artemis_missions (mission_name, crew_size, mission_duration_days, delta_v_total, radiation_exposure_msv, safety_index, mission_notes) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [missionName, crewSize, missionDurationDays, deltaVTotal, radiationExposure, safetyIndex, missionNotes]
+      `INSERT INTO artemis_missions (account_id, mission_name, crew_size, mission_duration_days, delta_v_total, radiation_exposure_msv, safety_index, mission_notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [req.accountId, missionName, crewSize, missionDurationDays, deltaVTotal, radiationExposure, safetyIndex, missionNotes]
     );
 
     res.json({ success: true, mission: result.rows[0] });
@@ -938,7 +1138,7 @@ app.post('/api/artemis/log-mission', async (req, res) => {
 // GET /api/artemis/experiments - Отримання Artemis сценаріїв
 app.get('/api/artemis/experiments', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM artemis_missions ORDER BY created_at DESC');
+    const result = await pool.query('SELECT * FROM artemis_missions WHERE account_id = $1 ORDER BY created_at DESC', [req.accountId || null]);
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error('Помилка отримання Artemis місій:', err);
@@ -988,10 +1188,10 @@ app.get('/api/system/info', (req, res) => {
 app.get('/api/system/stats', async (req, res) => {
   try {
     const [energyStats, radiationStats, thermoStats, artemisStats] = await Promise.all([
-      pool.query('SELECT COUNT(*) as count FROM energy_experiments'),
-      pool.query('SELECT COUNT(*) as count FROM radiation_experiments'),
-      pool.query('SELECT COUNT(*) as count FROM thermo_experiments'),
-      pool.query('SELECT COUNT(*) as count FROM artemis_missions')
+      pool.query('SELECT COUNT(*) as count FROM energy_experiments WHERE account_id = $1', [req.accountId || null]),
+      pool.query('SELECT COUNT(*) as count FROM radiation_experiments WHERE account_id = $1', [req.accountId || null]),
+      pool.query('SELECT COUNT(*) as count FROM thermo_experiments WHERE account_id = $1', [req.accountId || null]),
+      pool.query('SELECT COUNT(*) as count FROM artemis_missions WHERE account_id = $1', [req.accountId || null])
     ]);
 
     const stats = {

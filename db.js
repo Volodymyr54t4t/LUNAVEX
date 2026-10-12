@@ -13,6 +13,25 @@ const pool = new Pool({
 // Ініціалізація всіх таблиць
 async function initializeDatabase() {
   try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS lunar_accounts (
+        id UUID PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS lunar_sessions (
+        token_hash CHAR(64) PRIMARY KEY,
+        account_id UUID NOT NULL REFERENCES lunar_accounts(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMPTZ NOT NULL
+      )
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS lunar_sessions_expiry_idx ON lunar_sessions (expires_at)');
+    console.log('✅ Таблиці акаунтів і сесій готові');
+
     // Таблиця для енергетичних експериментів (сонячні панелі)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS energy_experiments (
@@ -96,6 +115,26 @@ async function initializeDatabase() {
     `);
     await pool.query('CREATE INDEX IF NOT EXISTS illumination_researches_workspace_created_idx ON illumination_researches (workspace_id, created_at DESC)');
     console.log('✅ Таблиця illumination_researches готова');
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS earthlink_researches (
+        id BIGSERIAL PRIMARY KEY,
+        workspace_id UUID NOT NULL,
+        name TEXT NOT NULL,
+        site JSONB NOT NULL,
+        parameters JSONB NOT NULL,
+        result JSONB NOT NULL,
+        model_version TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS earthlink_researches_workspace_created_idx ON earthlink_researches (workspace_id, created_at DESC)');
+    console.log('✅ Таблиця earthlink_researches готова');
+
+    for (const table of ['energy_experiments', 'radiation_experiments', 'thermo_experiments', 'artemis_missions']) {
+      await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES lunar_accounts(id) ON DELETE CASCADE`);
+      await pool.query(`CREATE INDEX IF NOT EXISTS ${table}_account_created_idx ON ${table} (account_id, created_at DESC)`);
+    }
 
     console.log('🌕 Усі таблиці ініціалізовано успішно!');
   } catch (err) {
