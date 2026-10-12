@@ -18,9 +18,17 @@ async function initializeDatabase() {
         id UUID PRIMARY KEY,
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
+        display_name TEXT NOT NULL DEFAULT '',
+        role_title TEXT NOT NULL DEFAULT '',
+        bio TEXT NOT NULL DEFAULT '',
+        avatar_color TEXT NOT NULL DEFAULT '#73d8e8',
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await pool.query("ALTER TABLE lunar_accounts ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT ''");
+    await pool.query("ALTER TABLE lunar_accounts ADD COLUMN IF NOT EXISTS role_title TEXT NOT NULL DEFAULT ''");
+    await pool.query("ALTER TABLE lunar_accounts ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT ''");
+    await pool.query("ALTER TABLE lunar_accounts ADD COLUMN IF NOT EXISTS avatar_color TEXT NOT NULL DEFAULT '#73d8e8'");
     await pool.query(`
       CREATE TABLE IF NOT EXISTS lunar_sessions (
         token_hash CHAR(64) PRIMARY KEY,

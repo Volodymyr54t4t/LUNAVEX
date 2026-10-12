@@ -53,10 +53,10 @@ app.use('/api', async (req, res, next) => {
     const token = cookieValue(req, SESSION_COOKIE);
     if (token) {
       const result = await pool.query(
-        'SELECT a.id, a.email FROM lunar_sessions s JOIN lunar_accounts a ON a.id = s.account_id WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP',
+        'SELECT a.id, a.email, a.display_name, a.role_title, a.bio, a.avatar_color, a.created_at FROM lunar_sessions s JOIN lunar_accounts a ON a.id = s.account_id WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP',
         [hashSessionToken(token)]
       );
-      if (result.rowCount) { req.accountId = result.rows[0].id; req.account = { id: result.rows[0].id, email: result.rows[0].email }; }
+      if (result.rowCount) { req.accountId = result.rows[0].id; req.account = { id: result.rows[0].id, email: result.rows[0].email, displayName: result.rows[0].display_name, roleTitle: result.rows[0].role_title, bio: result.rows[0].bio, avatarColor: result.rows[0].avatar_color, createdAt: result.rows[0].created_at }; }
     }
     next();
   } catch (error) {
@@ -125,15 +125,65 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email), password = String(req.body?.password || '');
     if (!email || !password || Buffer.byteLength(password, 'utf8') > 1024) return res.status(400).json({ error: 'Введіть електронну пошту та пароль.' });
-    const result = await pool.query('SELECT id,email,password_hash FROM lunar_accounts WHERE email = $1', [email]);
+    const result = await pool.query('SELECT id,email,password_hash,display_name,role_title,bio,avatar_color,created_at FROM lunar_accounts WHERE email = $1', [email]);
     if (!result.rowCount || !(await verifyPassword(password, result.rows[0].password_hash))) return res.status(401).json({ error: 'Електронна пошта або пароль неправильні.' });
-    const account = { id: result.rows[0].id, email: result.rows[0].email };
+    const account = { id: result.rows[0].id, email: result.rows[0].email, displayName: result.rows[0].display_name, roleTitle: result.rows[0].role_title, bio: result.rows[0].bio, avatarColor: result.rows[0].avatar_color, createdAt: result.rows[0].created_at };
     await startAccountSession(req, res, account);
     res.json({ authenticated: true, account });
   } catch (error) {
     console.error('Account login failed:', error);
     res.status(500).json({ error: 'Не вдалося увійти до акаунта.' });
   }
+});
+app.get('/api/profile', (req, res) => {
+  if (!requireAccount(req, res)) return;
+  res.json({ profile: req.account });
+});
+app.put('/api/profile', async (req, res) => {
+  if (!requireAccount(req, res) || !verifyRequestOrigin(req, res)) return;
+  const displayName = String(req.body?.displayName || '').trim();
+  const roleTitle = String(req.body?.roleTitle || '').trim();
+  const bio = String(req.body?.bio || '').trim();
+  const avatarColor = String(req.body?.avatarColor || '');
+  const allowedColors = new Set(['#73d8e8', '#c7ec7c', '#dda4ff', '#ffb87a', '#ff8ca8', '#8daeff']);
+  if (displayName.length < 2 || displayName.length > 60) return res.status(400).json({ error: 'Ім’я профілю має містити від 2 до 60 символів.' });
+  if (roleTitle.length > 80 || bio.length > 300) return res.status(400).json({ error: 'Посада має бути до 80, а опис — до 300 символів.' });
+  if (!allowedColors.has(avatarColor)) return res.status(400).json({ error: 'Оберіть колір аватара зі списку.' });
+  try {
+    const result = await pool.query('UPDATE lunar_accounts SET display_name=$1, role_title=$2, bio=$3, avatar_color=$4 WHERE id=$5 RETURNING id,email,display_name,role_title,bio,avatar_color,created_at', [displayName, roleTitle, bio, avatarColor, req.accountId]);
+    const row = result.rows[0];
+    const profile = { id: row.id, email: row.email, displayName: row.display_name, roleTitle: row.role_title, bio: row.bio, avatarColor: row.avatar_color, createdAt: row.created_at };
+    req.account = profile;
+    res.json({ success: true, profile });
+  } catch (error) { console.error('Profile update failed:', error); res.status(500).json({ error: 'Не вдалося зберегти профіль.' }); }
+});
+app.get('/api/profile/analytics', async (req, res) => {
+  if (!requireAccount(req, res)) return;
+  try {
+    const accountId = req.accountId;
+    const [counts, recent] = await Promise.all([
+      pool.query(`SELECT
+        COALESCE((SELECT jsonb_array_length(payload->'sites') FROM lunar_site_explorer_workspaces WHERE workspace_id=$1),0)::int AS sites,
+        (SELECT COUNT(*)::int FROM illumination_researches WHERE workspace_id=$1) AS illumination,
+        (SELECT COUNT(*)::int FROM earthlink_researches WHERE workspace_id=$1) AS earthlink,
+        (SELECT COUNT(*)::int FROM energy_experiments WHERE account_id=$1) AS energy,
+        (SELECT COUNT(*)::int FROM radiation_experiments WHERE account_id=$1) AS radiation,
+        (SELECT COUNT(*)::int FROM thermo_experiments WHERE account_id=$1) AS thermo,
+        (SELECT COUNT(*)::int FROM artemis_missions WHERE account_id=$1) AS artemis`, [accountId]),
+      pool.query(`SELECT module, label, created_at FROM (
+        SELECT 'Explorer'::text AS module, x.name AS label, w.updated_at AS created_at FROM lunar_site_explorer_workspaces w CROSS JOIN LATERAL jsonb_to_recordset(w.payload->'sites') AS x(name text) WHERE w.workspace_id=$1
+        UNION ALL SELECT 'Освітленість', name, created_at FROM illumination_researches WHERE workspace_id=$1
+        UNION ALL SELECT 'EarthLink', name, created_at FROM earthlink_researches WHERE workspace_id=$1
+        UNION ALL SELECT 'Енергія', 'Експеримент сонячної панелі', created_at FROM energy_experiments WHERE account_id=$1
+        UNION ALL SELECT 'Радіація', material, created_at FROM radiation_experiments WHERE account_id=$1
+        UNION ALL SELECT 'Тепловий режим', material, created_at FROM thermo_experiments WHERE account_id=$1
+        UNION ALL SELECT 'Artemis', mission_name, created_at FROM artemis_missions WHERE account_id=$1
+      ) activity ORDER BY created_at DESC LIMIT 12`, [accountId])
+    ]);
+    const data = counts.rows[0];
+    const total = Object.values(data).reduce((sum, count) => sum + Number(count), 0);
+    res.json({ counts: data, totalRecords: total, recentActivity: recent.rows });
+  } catch (error) { console.error('Profile analytics failed:', error); res.status(500).json({ error: 'Не вдалося завантажити аналітику профілю.' }); }
 });
 app.post('/api/auth/logout', async (req, res) => {
   if (!verifyRequestOrigin(req, res)) return;
@@ -169,8 +219,7 @@ app.use('/api/earthlink', (req, res, next) => {
 
 function getExplorerWorkspaceId(req, res) {
   if (req.accountId) return req.accountId;
-  const cookie = (req.headers.cookie || '').split(';').map(part => part.trim()).find(part => part.startsWith('lunavex_explorer_workspace='));
-  const candidate = cookie ? decodeURIComponent(cookie.slice('lunavex_explorer_workspace='.length)) : '';
+  const candidate = cookieValue(req, 'lunavex_explorer_workspace');
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)) return candidate;
 
   const workspaceId = require('node:crypto').randomUUID();
